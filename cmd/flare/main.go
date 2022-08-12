@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	flare "github.com/nabeken/pg-flare"
@@ -21,23 +22,48 @@ func realmain() error {
 		},
 	}
 
-	attackCmd := &cobra.Command{
-		Use:   "attack",
-		Short: "Generate write traffic for testing",
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.PrintErr("please specify a subcommand\n")
-		},
-	}
-
-	rootCmd.AddCommand(attackCmd)
-
+	rootCmd.AddCommand(buildAttackCmd())
 	rootCmd.AddCommand(buildAttackDBCmd())
 
 	return rootCmd.Execute()
 }
 
+func buildAttackCmd() *cobra.Command {
+	var dsn string
+
+	attackCmd := &cobra.Command{
+		Use:   "attack",
+		Short: "Generate write traffic against `flare_test` table for testing",
+		Run: func(cmd *cobra.Command, args []string) {
+			db, err := flare.Open(dsn)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			gen := flare.NewTrafficGenerator(db)
+
+			log.Print("Begin to attack the database...")
+
+			if err := gen.Attack(context.Background()); err != nil {
+				log.Println(err)
+			}
+
+			log.Print("Finished attacking the database...")
+		},
+	}
+
+	attackCmd.Flags().StringVar(
+		&dsn,
+		"dsn",
+		"postgres://app:app@localhost:5432/flare_test?sslmode=disable",
+		"Data Source Name (must not be a super user)",
+	)
+
+	return attackCmd
+}
+
 func buildAttackDBCmd() *cobra.Command {
-	var dsn, dbOwner string
+	var dsn, dbUser string
 	var dropDBBefore bool
 
 	attackDBCmd := &cobra.Command{
@@ -46,7 +72,7 @@ func buildAttackDBCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := flare.CreateTestTable(
 				flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)},
-				dbOwner,
+				dbUser,
 				dropDBBefore,
 			); err != nil {
 				log.Fatal(err)
@@ -57,15 +83,15 @@ func buildAttackDBCmd() *cobra.Command {
 	attackDBCmd.Flags().StringVar(
 		&dsn,
 		"super-user-dsn",
-		"postgres://postgres:postgres@localhost:5432/postgressslmode=disable",
+		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
 		"Super User Data Source Name",
 	)
 
 	attackDBCmd.Flags().StringVar(
-		&dbOwner,
-		"dbowner",
-		"postgres",
-		"Database Owner",
+		&dbUser,
+		"dbuser",
+		"app",
+		"Database User (must not be a super user)",
 	)
 
 	attackDBCmd.Flags().BoolVar(

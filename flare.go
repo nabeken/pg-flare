@@ -1,17 +1,59 @@
 package flare
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type TrafficGenerator struct {
-	connConfig ConnConfig
+	db *sql.DB
 }
 
-func NewTrafficGenerator(connConfig ConnConfig) *TrafficGenerator {
-	return &TrafficGenerator{connConfig: connConfig}
+func NewTrafficGenerator(db *sql.DB) *TrafficGenerator {
+	return &TrafficGenerator{db: db}
+}
+
+func (g *TrafficGenerator) Attack(ctx context.Context) error {
+	for {
+		select {
+		case err := <-ctx.Done():
+			return fmt.Errorf("stop writing items... :%w", err)
+		default:
+		}
+
+		if err := g.WriteNewItem(); err != nil {
+			log.Printf("Failed to write a new item: %s", err)
+		}
+	}
+}
+
+func (g *TrafficGenerator) WriteNewItem() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tx, err := g.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning a new transaction: %w", err)
+	}
+
+	if _, err := tx.Exec(
+		`INSERT into items values($1, $2);`,
+		uuid.NewString(),
+		uuid.NewString(),
+	); err != nil {
+		return fmt.Errorf("inserting a new item: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commiting the item: %w", err)
+	}
+
+	return nil
 }
 
 const flareDatabaseSchema = `
@@ -21,7 +63,7 @@ CREATE TABLE IF NOT EXISTS items (
 );
 `
 
-func CreateTestTable(suc SuperUserConfig, dbOwner string, dropDBBefore bool) error {
+func CreateTestTable(suc SuperUserConfig, dbUser string, dropDBBefore bool) error {
 	db, err := suc.Open()
 	if err != nil {
 		return fmt.Errorf("opening the database connection with the super user: %w", err)
@@ -43,12 +85,6 @@ func CreateTestTable(suc SuperUserConfig, dbOwner string, dropDBBefore bool) err
 		return fmt.Errorf("creating a database: %w", err)
 	}
 
-	if _, err := db.Exec(
-		fmt.Sprintf(`ALTER DATABASE flare_test OWNER TO %s;`, quoteIdentifier(dbOwner)),
-	); err != nil {
-		return fmt.Errorf("updating the owner of the database: %w", err)
-	}
-
 	newSUC, err := suc.SwitchDatabase("flare_test")
 	if err != nil {
 		return fmt.Errorf("chaging to the new database: %w", err)
@@ -61,6 +97,12 @@ func CreateTestTable(suc SuperUserConfig, dbOwner string, dropDBBefore bool) err
 
 	if _, err := newDB.Exec(flareDatabaseSchema); err != nil {
 		return fmt.Errorf("creating tables: %w", err)
+	}
+
+	if _, err := newDB.Exec(
+		fmt.Sprintf(`GRANT ALL ON items TO %s;`, quoteIdentifier(dbUser)),
+	); err != nil {
+		return fmt.Errorf("granting access to the dbuser: %w", err)
 	}
 
 	return nil
