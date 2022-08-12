@@ -10,6 +10,7 @@ I found PostgreSQL's logical replication can be used for minimizing downtime for
 
 - Connection management for publisher and subscriber
 - Generating write traffic for testing
+  - should generate `INSERT`, `UPDATE` and `DELETE`
 - Replicating roles
 - Syncrhoning schemas
 - Creating a publisher and subscriber

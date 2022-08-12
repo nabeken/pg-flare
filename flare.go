@@ -21,8 +21,9 @@ func NewTrafficGenerator(db *sql.DB) *TrafficGenerator {
 func (g *TrafficGenerator) Attack(ctx context.Context) error {
 	for {
 		select {
-		case err := <-ctx.Done():
-			return fmt.Errorf("stop writing items... :%w", err)
+		case <-ctx.Done():
+			log.Printf("Stop writing new items...")
+			return nil
 		default:
 		}
 
