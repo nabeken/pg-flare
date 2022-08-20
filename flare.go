@@ -126,3 +126,25 @@ func DumpRoles(suc SuperUserConfig) (string, error) {
 
 	return PGDumpAll(args)
 }
+
+func DumpSchema(suc SuperUserConfig, db string) (string, error) {
+	args, err := suc.ConnConfig.PSQLArgs()
+	if err != nil {
+		return "", fmt.Errorf("dump schema: %w", err)
+	}
+
+	args.Args = []string{
+		"--schema-only",
+		"--create",
+	}
+
+	return PGDump(args, db)
+}
+
+func CreatePublicationQuery(pubname string) string {
+	return fmt.Sprintf(`CREATE PUBLICATION %s FOR ALL TABLES;`, quoteIdentifier(pubname))
+}
+
+func AlterTableReplicaIdentityFull(tbl string) string {
+	return fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY FULL;`, quoteIdentifier(tbl))
+}

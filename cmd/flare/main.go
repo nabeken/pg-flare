@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	flare "github.com/nabeken/pg-flare"
@@ -15,6 +16,7 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
 func realmain() error {
 	rootCmd := &cobra.Command{
 		Use:   "flare",
@@ -28,8 +30,133 @@ func realmain() error {
 	rootCmd.AddCommand(buildAttackDBCmd())
 	rootCmd.AddCommand(buildDumpRolesCmd())
 	rootCmd.AddCommand(buildReplicateRolesCmd())
+	rootCmd.AddCommand(buildReplicateSchemaCmd())
+	rootCmd.AddCommand(buildCreatePublicationCmd())
 
 	return rootCmd.Execute()
+}
+
+func buildCreatePublicationCmd() *cobra.Command {
+	var dsn string
+	var replicaIdentityFullTables []string
+
+	cmd := &cobra.Command{
+		Use:   "create_publication [PUBNAME]",
+		Short: "Create a publication in the given database in the DSN",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a publication name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			pubName := args[0]
+			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
+
+			log.Print("Creating a publisher in the source...")
+
+			db, err := suc.Open()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			defer db.Close()
+
+			if err := db.Ping(); err != nil {
+				log.Fatal(err)
+			}
+
+			for _, tbl := range replicaIdentityFullTables {
+				log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
+
+				if _, err = db.Exec(flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			if _, err = db.Exec(flare.CreatePublicationQuery(pubName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Publisher in the source has been created")
+		},
+	}
+
+	cmd.Flags().StringArrayVar(
+		&replicaIdentityFullTables,
+		"replica-identity-full",
+		[]string{},
+		"Table to set REPLICA IDENTITY to FULL",
+	)
+
+	cmd.Flags().StringVar(
+		&dsn,
+		"super-user-dsn",
+		"",
+		"Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("super-user-dsn")
+
+	return cmd
+}
+
+func buildReplicateSchemaCmd() *cobra.Command {
+	var srcDSN, dstDSN string
+
+	cmd := &cobra.Command{
+		Use:   "replicate_schema [DBNAME]",
+		Short: "Replicate schema",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
+			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+
+			log.Print("Reading the schema from the source...")
+
+			schema, err := flare.DumpSchema(srcSUC, dbName)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Copying the schema to the destination...")
+
+			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
+			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(schema))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Print(result)
+			fmt.Print(resultErr)
+
+			log.Print("Finished copying the roles to the destination")
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&srcDSN,
+		"src-super-user-dsn",
+		"",
+		"Source Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("src-super-user-dsn")
+
+	cmd.Flags().StringVar(
+		&dstDSN,
+		"dst-super-user-dsn",
+		"",
+		"Destination Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("dst-super-user-dsn")
+
+	return cmd
 }
 
 func buildReplicateRolesCmd() *cobra.Command {
@@ -57,10 +184,10 @@ func buildReplicateRolesCmd() *cobra.Command {
 				log.Fatal(err)
 			}
 
-			log.Print("Finished copying the roles to the destination")
-
 			fmt.Print(result)
 			fmt.Print(resultErr)
+
+			log.Print("Finished copying the roles to the destination")
 		},
 	}
 
