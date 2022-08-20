@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	flare "github.com/nabeken/pg-flare"
@@ -24,14 +25,43 @@ func realmain() error {
 
 	rootCmd.AddCommand(buildAttackCmd())
 	rootCmd.AddCommand(buildAttackDBCmd())
+	rootCmd.AddCommand(buildDumpRolesCmd())
 
 	return rootCmd.Execute()
+}
+
+func buildDumpRolesCmd() *cobra.Command {
+	var dsn string
+
+	cmd := &cobra.Command{
+		Use:   "dump_roles",
+		Short: "Dump roles",
+		Run: func(cmd *cobra.Command, args []string) {
+			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
+
+			roles, err := flare.DumpRoles(suc)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Print(roles)
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&dsn,
+		"super-user-dsn",
+		"postgres://postgres:postgres@localhost:5432/",
+		"Super User Data Source Name",
+	)
+
+	return cmd
 }
 
 func buildAttackCmd() *cobra.Command {
 	var dsn string
 
-	attackCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "attack",
 		Short: "Generate write traffic against `flare_test` table for testing",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -52,21 +82,21 @@ func buildAttackCmd() *cobra.Command {
 		},
 	}
 
-	attackCmd.Flags().StringVar(
+	cmd.Flags().StringVar(
 		&dsn,
 		"dsn",
 		"postgres://app:app@localhost:5432/flare_test?sslmode=disable",
 		"Data Source Name (must not be a super user)",
 	)
 
-	return attackCmd
+	return cmd
 }
 
 func buildAttackDBCmd() *cobra.Command {
 	var dsn, dbUser string
 	var dropDBBefore bool
 
-	attackDBCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "create_attack_db",
 		Short: "Create database for testing",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -80,26 +110,26 @@ func buildAttackDBCmd() *cobra.Command {
 		},
 	}
 
-	attackDBCmd.Flags().StringVar(
+	cmd.Flags().StringVar(
 		&dsn,
 		"super-user-dsn",
 		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
 		"Super User Data Source Name",
 	)
 
-	attackDBCmd.Flags().StringVar(
+	cmd.Flags().StringVar(
 		&dbUser,
 		"dbuser",
 		"app",
 		"Database User (must not be a super user)",
 	)
 
-	attackDBCmd.Flags().BoolVar(
+	cmd.Flags().BoolVar(
 		&dropDBBefore,
 		"drop-db-before",
 		false,
 		"Drop the database before creating it if exists",
 	)
 
-	return attackDBCmd
+	return cmd
 }

@@ -11,6 +11,7 @@ type PSQLArgs struct {
 	User string
 	Host string
 	Port string
+	Pass string
 	Args []string
 }
 
@@ -52,14 +53,14 @@ func PGDump(args PSQLArgs, db, password string) (string, error) {
 	return out.String(), nil
 }
 
-func PGDumpAll(args PSQLArgs, password string) (string, error) {
+func PGDumpAll(args PSQLArgs) (string, error) {
 	dumpArgs := []string{}
 	dumpArgs = append(dumpArgs, args.BuildArgs()...)
 
 	cmd := exec.Command("pg_dumpall", dumpArgs...)
 	cmd.Env = []string{
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
-		fmt.Sprintf("PGPASSWORD=%s", password),
+		fmt.Sprintf("PGPASSWORD=%s", args.Pass),
 	}
 
 	var out bytes.Buffer

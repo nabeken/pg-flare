@@ -116,3 +116,13 @@ func Open(connString string) (*sql.DB, error) {
 func quoteIdentifier(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
+
+func DumpRoles(suc SuperUserConfig) (string, error) {
+	args, err := suc.ConnConfig.PSQLArgs()
+	if err != nil {
+		return "", fmt.Errorf("dump roles: %w", err)
+	}
+	args.Args = []string{"--roles-only"}
+
+	return PGDumpAll(args)
+}
