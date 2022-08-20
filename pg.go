@@ -3,6 +3,7 @@ package flare
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
@@ -31,14 +32,37 @@ func (a PSQLArgs) BuildArgs() []string {
 	return append(args, a.Args...)
 }
 
-func PGDump(args PSQLArgs, db, password string) (string, error) {
+func PSQL(args PSQLArgs, db string, r io.Reader) (string, string, error) {
+	dumpArgs := []string{}
+	dumpArgs = append(dumpArgs, args.BuildArgs()...)
+
+	cmd := exec.Command("psql", append(dumpArgs, db)...)
+	cmd.Env = []string{
+		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
+		fmt.Sprintf("PGPASSWORD=%s", args.Pass),
+	}
+
+	var out bytes.Buffer
+	var errout bytes.Buffer
+	cmd.Stdin = r
+	cmd.Stdout = &out
+	cmd.Stderr = &errout
+
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("psql: %w: %s", err, errout.String())
+	}
+
+	return out.String(), errout.String(), nil
+}
+
+func PGDump(args PSQLArgs, db string) (string, error) {
 	dumpArgs := []string{}
 	dumpArgs = append(dumpArgs, args.BuildArgs()...)
 
 	cmd := exec.Command("pg_dump", append(dumpArgs, db)...)
 	cmd.Env = []string{
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
-		fmt.Sprintf("PGPASSWORD=%s", password),
+		fmt.Sprintf("PGPASSWORD=%s", args.Pass),
 	}
 
 	var out bytes.Buffer

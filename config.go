@@ -17,6 +17,15 @@ type ConnConfig struct {
 	connString string
 }
 
+func (c ConnConfig) MustPSQLArgs() (PSQLArgs) {
+	args, err := c.PSQLArgs()
+	if err != nil {
+		panic(err)
+	}
+
+	return args
+}
+
 func (c ConnConfig) PSQLArgs() (PSQLArgs, error) {
 	u, err := url.Parse(c.connString)
 	if err != nil {

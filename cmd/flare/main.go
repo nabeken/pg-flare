@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	flare "github.com/nabeken/pg-flare"
 	"github.com/spf13/cobra"
@@ -26,8 +27,60 @@ func realmain() error {
 	rootCmd.AddCommand(buildAttackCmd())
 	rootCmd.AddCommand(buildAttackDBCmd())
 	rootCmd.AddCommand(buildDumpRolesCmd())
+	rootCmd.AddCommand(buildReplicateRolesCmd())
 
 	return rootCmd.Execute()
+}
+
+func buildReplicateRolesCmd() *cobra.Command {
+	var srcDSN, dstDSN string
+
+	cmd := &cobra.Command{
+		Use:   "replicate_roles",
+		Short: "Replicate roles",
+		Run: func(cmd *cobra.Command, args []string) {
+			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
+			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+
+			log.Print("Reading the roles from the source...")
+
+			roles, err := flare.DumpRoles(srcSUC)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Copying the roles to the destination...")
+
+			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
+			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Finished copying the roles to the destination")
+
+			fmt.Print(result)
+			fmt.Print(resultErr)
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&srcDSN,
+		"src-super-user-dsn",
+		"",
+		"Source Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("src-super-user-dsn")
+
+	cmd.Flags().StringVar(
+		&dstDSN,
+		"dst-super-user-dsn",
+		"",
+		"Destination Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("dst-super-user-dsn")
+
+	return cmd
 }
 
 func buildDumpRolesCmd() *cobra.Command {
