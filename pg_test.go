@@ -7,41 +7,61 @@ import (
 )
 
 func TestPGDump(t *testing.T) {
-	args := PSQLArgs{
-		User: "postgres",
-		Host: "localhost",
-		Port: "5430",
-	}
 
 	t.Run("Wrong Password", func(t *testing.T) {
-		_, err := PGDump(args, "postgres", "________")
+		_, err := PGDump(
+			PSQLArgs{
+				User: "postgres",
+				Host: "localhost",
+				Port: "5430",
+				Pass: "________",
+			},
+			"postgres",
+		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "password authentication failed for user \"postgres\"")
 	})
 
 	t.Run("Correct Password", func(t *testing.T) {
-		out, err := PGDump(args, "postgres", "postgres")
+		out, err := PGDump(
+			PSQLArgs{
+				User: "postgres",
+				Host: "localhost",
+				Port: "5430",
+				Pass: "postgres",
+			},
+			"postgres",
+		)
 		require.NoError(t, err)
 		require.Contains(t, out, "-- PostgreSQL database dump")
 	})
 }
 
 func TestPGDumpAll(t *testing.T) {
-	args := PSQLArgs{
-		User: "postgres",
-		Host: "localhost",
-		Port: "5430",
-		Args: []string{"--roles-only"},
-	}
-
 	t.Run("Wrong Password", func(t *testing.T) {
-		_, err := PGDumpAll(args, "________")
+		_, err := PGDumpAll(
+			PSQLArgs{
+				User: "postgres",
+				Host: "localhost",
+				Port: "5430",
+				Pass: "________",
+				Args: []string{"--roles-only"},
+			},
+		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "password authentication failed for user \"postgres\"")
 	})
 
 	t.Run("Correct Password", func(t *testing.T) {
-		out, err := PGDumpAll(args, "postgres")
+		out, err := PGDumpAll(
+			PSQLArgs{
+				User: "postgres",
+				Host: "localhost",
+				Port: "5430",
+				Pass: "postgres",
+				Args: []string{"--roles-only"},
+			},
+		)
 		require.NoError(t, err)
 		require.Contains(t, out, "-- PostgreSQL database cluster dump")
 	})

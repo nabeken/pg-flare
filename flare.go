@@ -148,3 +148,7 @@ func CreatePublicationQuery(pubname string) string {
 func AlterTableReplicaIdentityFull(tbl string) string {
 	return fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY FULL;`, quoteIdentifier(tbl))
 }
+
+func CreateSubscriptionQuery(subName, pubDSN, pubName string) string {
+	return fmt.Sprintf(`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s;`, subName, pubDSN, pubName)
+}

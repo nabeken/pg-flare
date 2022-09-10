@@ -9,15 +9,65 @@ import (
 	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
-func NewConnConfig(dsn string) ConnConfig {
-	return ConnConfig{connString: dsn}
+func MustNewConnConfig(dsn string) ConnConfig {
+	c, err := NewConnConfig(dsn)
+	if err != nil {
+		panic(err)
+	}
+
+	return c
+}
+
+func NewConnConfig(dsn string) (ConnConfig, error) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return ConnConfig{}, fmt.Errorf("parsing dsn: %w", err)
+	}
+
+	return ConnConfig{
+		connString: dsn,
+		u:          u,
+	}, nil
 }
 
 type ConnConfig struct {
 	connString string
+	u          *url.URL
 }
 
-func (c ConnConfig) MustPSQLArgs() (PSQLArgs) {
+func (c ConnConfig) StdConnInfo() (string, error) {
+	u, err := url.Parse(c.connString)
+	if err != nil {
+		return "", fmt.Errorf("parsing connString: %w", err)
+	}
+
+	v, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", fmt.Errorf("parsing the query: %w", err)
+	}
+
+	// remove non-standard parameters
+	v.Del("x-publication")
+
+	u.RawQuery = v.Encode()
+
+	return u.String(), nil
+}
+
+func (c ConnConfig) MustQuery() url.Values {
+	q, err := c.Query()
+	if err != nil {
+		panic(err)
+	}
+
+	return q
+}
+
+func (c ConnConfig) Query() (url.Values, error) {
+	return url.ParseQuery(c.u.RawQuery)
+}
+
+func (c ConnConfig) MustPSQLArgs() PSQLArgs {
 	args, err := c.PSQLArgs()
 	if err != nil {
 		panic(err)
@@ -27,20 +77,15 @@ func (c ConnConfig) MustPSQLArgs() (PSQLArgs) {
 }
 
 func (c ConnConfig) PSQLArgs() (PSQLArgs, error) {
-	u, err := url.Parse(c.connString)
-	if err != nil {
-		return PSQLArgs{}, fmt.Errorf("parsing connString: %w", err)
-	}
-
-	host, port, err := net.SplitHostPort(u.Host)
+	host, port, err := net.SplitHostPort(c.u.Host)
 	if err != nil {
 		return PSQLArgs{}, fmt.Errorf("parsing host: %w", err)
 	}
 
-	pass, _ := u.User.Password()
+	pass, _ := c.u.User.Password()
 
 	return PSQLArgs{
-		User: u.User.Username(),
+		User: c.u.User.Username(),
 		Pass: pass,
 		Host: host,
 		Port: port,
@@ -55,9 +100,7 @@ func (c ConnConfig) SwitchDatabase(newDB string) (ConnConfig, error) {
 
 	u.Path = newDB
 
-	return ConnConfig{
-		connString: u.String(),
-	}, nil
+	return NewConnConfig(u.String())
 }
 
 type SuperUserConfig struct {

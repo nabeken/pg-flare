@@ -32,8 +32,75 @@ func realmain() error {
 	rootCmd.AddCommand(buildReplicateRolesCmd())
 	rootCmd.AddCommand(buildReplicateSchemaCmd())
 	rootCmd.AddCommand(buildCreatePublicationCmd())
+	rootCmd.AddCommand(buildCreateSubscriptionCmd())
 
 	return rootCmd.Execute()
+}
+
+func buildCreateSubscriptionCmd() *cobra.Command {
+	var pubDSN, subDSN string
+
+	cmd := &cobra.Command{
+		Use:   "create_subscription [SUBNAME]",
+		Short: "Create a subscription in the given database in the DSN",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a subscription name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			subName := args[0]
+
+			pubConn := flare.MustNewConnConfig(pubDSN)
+			pubQuery := pubConn.MustQuery()
+			pubName := pubQuery.Get("x-publication")
+
+			pubConnInfo, err := pubConn.StdConnInfo()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print(pubConnInfo)
+
+			subQuery := flare.CreateSubscriptionQuery(subName, pubConnInfo, pubName)
+
+			log.Print("Creating a subscription...")
+
+			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(subDSN)}
+			db, err := suc.Open()
+
+			defer db.Close()
+
+			if err := db.Ping(); err != nil {
+				log.Fatal(err)
+			}
+
+			if _, err = db.Exec(subQuery); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("The subscription has been created")
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&subDSN,
+		"sub-super-user-dsn",
+		"postgres://postgres:postgres@localhost:5432/DBNAME",
+		"Subscriber Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("sub-super-user-dsn")
+
+	cmd.Flags().StringVar(
+		&pubDSN,
+		"pub-super-user-dsn",
+		"postgres://postgres:postgres@localhost:5432/DBNAME?x-publication=PUBNAME",
+		"Publisher Super User Data Source Name",
+	)
+	cmd.MarkFlagRequired("pub-super-user-dsn")
+
+	return cmd
 }
 
 func buildCreatePublicationCmd() *cobra.Command {
@@ -51,7 +118,7 @@ func buildCreatePublicationCmd() *cobra.Command {
 			}
 
 			pubName := args[0]
-			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
+			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)}
 
 			log.Print("Creating a publisher in the source...")
 
@@ -92,7 +159,7 @@ func buildCreatePublicationCmd() *cobra.Command {
 	cmd.Flags().StringVar(
 		&dsn,
 		"super-user-dsn",
-		"",
+		"postgres://postgres:postgres@localhost:5432/DBNAME",
 		"Super User Data Source Name",
 	)
 	cmd.MarkFlagRequired("super-user-dsn")
@@ -115,8 +182,8 @@ func buildReplicateSchemaCmd() *cobra.Command {
 
 			dbName := args[0]
 
-			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
-			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+			srcSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(srcDSN)}
+			dstSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dstDSN)}
 
 			log.Print("Reading the schema from the source...")
 
@@ -136,14 +203,14 @@ func buildReplicateSchemaCmd() *cobra.Command {
 			fmt.Print(result)
 			fmt.Print(resultErr)
 
-			log.Print("Finished copying the roles to the destination")
+			log.Print("Finished copying the schema to the destination")
 		},
 	}
 
 	cmd.Flags().StringVar(
 		&srcDSN,
 		"src-super-user-dsn",
-		"",
+		"postgres://postgres:postgres@localhost:5432/SRC_DBNAME",
 		"Source Super User Data Source Name",
 	)
 	cmd.MarkFlagRequired("src-super-user-dsn")
@@ -151,7 +218,7 @@ func buildReplicateSchemaCmd() *cobra.Command {
 	cmd.Flags().StringVar(
 		&dstDSN,
 		"dst-super-user-dsn",
-		"",
+		"postgres://postgres:postgres@localhost:5432/DST_DBNAME",
 		"Destination Super User Data Source Name",
 	)
 	cmd.MarkFlagRequired("dst-super-user-dsn")
@@ -166,8 +233,8 @@ func buildReplicateRolesCmd() *cobra.Command {
 		Use:   "replicate_roles",
 		Short: "Replicate roles",
 		Run: func(cmd *cobra.Command, args []string) {
-			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
-			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+			srcSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(srcDSN)}
+			dstSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dstDSN)}
 
 			log.Print("Reading the roles from the source...")
 
@@ -194,7 +261,7 @@ func buildReplicateRolesCmd() *cobra.Command {
 	cmd.Flags().StringVar(
 		&srcDSN,
 		"src-super-user-dsn",
-		"",
+		"postgres://postgres:postgres@localhost:5432",
 		"Source Super User Data Source Name",
 	)
 	cmd.MarkFlagRequired("src-super-user-dsn")
@@ -202,7 +269,7 @@ func buildReplicateRolesCmd() *cobra.Command {
 	cmd.Flags().StringVar(
 		&dstDSN,
 		"dst-super-user-dsn",
-		"",
+		"postgres://postgres:postgres@localhost:5432",
 		"Destination Super User Data Source Name",
 	)
 	cmd.MarkFlagRequired("dst-super-user-dsn")
@@ -217,7 +284,7 @@ func buildDumpRolesCmd() *cobra.Command {
 		Use:   "dump_roles",
 		Short: "Dump roles",
 		Run: func(cmd *cobra.Command, args []string) {
-			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
+			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)}
 
 			roles, err := flare.DumpRoles(suc)
 			if err != nil {
@@ -281,7 +348,7 @@ func buildAttackDBCmd() *cobra.Command {
 		Short: "Create database for testing",
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := flare.CreateTestTable(
-				flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)},
+				flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)},
 				dbUser,
 				dropDBBefore,
 			); err != nil {

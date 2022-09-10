@@ -9,7 +9,7 @@ import (
 func TestConnConfig(t *testing.T) {
 	require := require.New(t)
 
-	connConfig := NewConnConfig("pgx://localhost:5432/postgres?test=true")
+	connConfig := MustNewConnConfig("pgx://localhost:5432/postgres?test=true")
 
 	newConfig, err := connConfig.SwitchDatabase("new")
 	require.NoError(err)
