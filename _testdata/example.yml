@@ -1,0 +1,15 @@
+hosts:
+  publisher:
+    conn:
+      user: postgres1
+      password: 'password1'
+      host: publisher
+      port: '5430'
+      system_identifier: '12345'
+  subscriber:
+    conn:
+      user: postgres2
+      password: 'password2'
+      host: subscriber
+      port: '5431'
+      system_identifier: '67890'
