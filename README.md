@@ -63,10 +63,7 @@ SELECT system_identifier FROM pg_control_system();
 ./flare replicate_roles
 ```
 
-**Replicating the schema in `bench` database**:
+**Replicating the schema in a given database (ie. `bench` in the example)**:
 ```sh
-./flare replicate_schema \
-  --src-super-user-dsn postgres://postgres:postgres@localhost:5430 \
-  --dst-super-user-dsn postgres://postgres:postgres@localhost:5431 \
-  bench
+./flare replicate_schema bench
 ```

@@ -41,11 +41,10 @@ func realmain() error {
 
 	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
 	rootCmd.AddCommand(buildReplicateRolesCmd(gflags))
+	rootCmd.AddCommand(buildReplicateSchemaCmd(gflags))
 
 	//rootCmd.AddCommand(buildAttackCmd())
 	//rootCmd.AddCommand(buildAttackDBCmd())
-	//rootCmd.AddCommand(buildDumpRolesCmd())
-	//rootCmd.AddCommand(buildReplicateSchemaCmd())
 	//rootCmd.AddCommand(buildCreatePublicationCmd())
 	//rootCmd.AddCommand(buildCreateSubscriptionCmd())
 
@@ -58,7 +57,6 @@ func buildVerifyConnectivity(gflags *globalFlags) *cobra.Command {
 		Short: "Verify connectivity for a given configuration",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := context.TODO()
-
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
 			cmd.Printf("The system identifier for the publisher and the subscriber is OK!\n")
@@ -257,82 +255,87 @@ func parseConfigFile(fn string) (flare.Config, error) {
 //	return cmd
 //}
 //
-//func buildReplicateSchemaCmd() *cobra.Command {
-//	var srcDSN, dstDSN string
-//
-//	cmd := &cobra.Command{
-//		Use:   "replicate_schema [DBNAME]",
-//		Short: "Replicate schema",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			if len(args) != 1 {
-//				cmd.PrintErr("please specify a database name\n\n")
-//				cmd.Usage()
-//				os.Exit(1)
-//			}
-//
-//			dbName := args[0]
-//
-//			srcSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(srcDSN)}
-//			dstSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dstDSN)}
-//
-//			log.Print("Reading the schema from the source...")
-//
-//			schema, err := flare.DumpSchema(srcSUC, dbName)
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			log.Print("Copying the schema to the destination...")
-//
-//			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
-//			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(schema))
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			fmt.Print(result)
-//			fmt.Print(resultErr)
-//
-//			log.Print("Finished copying the schema to the destination")
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&srcDSN,
-//		"src-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/SRC_DBNAME",
-//		"Source Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("src-super-user-dsn")
-//
-//	cmd.Flags().StringVar(
-//		&dstDSN,
-//		"dst-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/DST_DBNAME",
-//		"Destination Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("dst-super-user-dsn")
-//
-//	return cmd
-//}
+
+func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
+	var onlyDump bool
+
+	cmd := &cobra.Command{
+		Use:   "replicate_schema [DBNAME]",
+		Short: "Replicate schema",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
+
+			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if onlyDump {
+				fmt.Print(schema)
+				log.Print("no replication to the subscriber was made as per request in the flag")
+				os.Exit(0)
+			}
+
+			log.Print("Copying the schema to the subscriber...")
+
+			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
+			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(schema))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Print(result)
+			fmt.Print(resultErr)
+
+			log.Print("Finished copying the schema to the subscriber")
+		},
+	}
+
+	cmd.Flags().BoolVar(
+		&onlyDump,
+		"only-dump",
+		false,
+		"Only dump the schema instead of replicating to the subscriber",
+	)
+
+	return cmd
+}
 
 func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
+	var onlyDump bool
+
 	cmd := &cobra.Command{
 		Use:   "replicate_roles",
 		Short: "Replicate roles from the publisher to the subscriber",
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := context.TODO()
-
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			log.Print("Reading the roles from the source...")
+			log.Print("Reading the roles from the publisher...")
 
 			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			log.Print("Copying the roles to the destination...")
+			if onlyDump {
+				fmt.Print(roles)
+				log.Print("no replication to the subscriber was made as per request in the flag")
+				os.Exit(0)
+			}
+
+			log.Print("Copying the roles to the subscriber...")
 
 			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
 			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
@@ -343,40 +346,20 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 			fmt.Print(result)
 			fmt.Print(resultErr)
 
-			log.Print("Finished copying the roles to the destination")
+			log.Print("Finished copying the roles to the subscriber")
 		},
 	}
+
+	cmd.Flags().BoolVar(
+		&onlyDump,
+		"only-dump",
+		false,
+		"Only dump the roles instead of replicating to the subscriber",
+	)
 
 	return cmd
 }
 
-//func buildDumpRolesCmd() *cobra.Command {
-//	var dsn string
-//
-//	cmd := &cobra.Command{
-//		Use:   "dump_roles",
-//		Short: "Dump roles",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)}
-//
-//			roles, err := flare.DumpRoles(suc)
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			fmt.Print(roles)
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&dsn,
-//		"super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/",
-//		"Super User Data Source Name",
-//	)
-//
-//	return cmd
-//}
 //
 //func buildAttackCmd() *cobra.Command {
 //	var dsn string
