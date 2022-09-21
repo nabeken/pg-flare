@@ -158,9 +158,8 @@ func TestConn(t *testing.T) {
 
 		defer conn.Close(ctx)
 
-		verified, err := conn.VerifySystemIdentifier(ctx)
-		require.ErrorAs(err, &SystemIdentifierError{})
-		require.False(verified)
+		verr := conn.VerifySystemIdentifier(ctx)
+		require.ErrorAs(verr, &SystemIdentifierError{})
 	})
 
 	t.Run("Verify/Verified", func(t *testing.T) {
@@ -188,9 +187,8 @@ func TestConn(t *testing.T) {
 
 		defer conn2.Close(ctx)
 
-		verified, err := conn2.VerifySystemIdentifier(ctx)
-		require.NoError(err)
-		require.True(verified)
+		verr := conn2.VerifySystemIdentifier(ctx)
+		require.NoError(verr)
 	})
 }
 

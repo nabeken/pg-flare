@@ -322,20 +322,35 @@ func (c *Conn) getSystemIdentifier(ctx context.Context) (string, error) {
 	return strconv.FormatInt(identifier, 10), nil
 }
 
-func (c *Conn) VerifySystemIdentifier(ctx context.Context) (bool, error) {
+func (c *Conn) VerifySystemIdentifier(ctx context.Context) error {
 	identifierStr, err := c.getSystemIdentifier(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if c.connConfig.SystemIdentifier != identifierStr {
-		return false, SystemIdentifierError{
+		return SystemIdentifierError{
 			Expected: c.connConfig.SystemIdentifier,
 			Got:      identifierStr,
 		}
 	}
 
-	return true, nil
+	return nil
+}
+
+func ConnectWithVerify(ctx context.Context, connConfig ConnConfig, dbName string) (*Conn, error) {
+	fconn, err := Connect(ctx, connConfig, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := fconn.VerifySystemIdentifier(ctx); err != nil {
+		defer fconn.Close(ctx)
+
+		return nil, fmt.Errorf("flare: verifying the identity: %w", err)
+	}
+
+	return fconn, nil
 }
 
 func Connect(ctx context.Context, connConfig ConnConfig, dbName string) (*Conn, error) {

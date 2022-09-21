@@ -40,19 +40,23 @@ SELECT system_identifier FROM pg_control_system();
 
 ## Component
 
-- Connection management for publisher and subscriber
 - Checking connectivity
-- Generating write traffic for testing
-  - should generate `INSERT`, `UPDATE` and `DELETE`
-- Replicating roles
-- Replicating schemas
+- Replicating roles from the publishder to the subscriber
+- Replicating schemas from the publisher to the subscriber
 - Creating a publisher and subscriber
 - Monitoring the replication
 - Pausing write traffic
 - Checking whether or not write traffic is paused
 - Resuming write traffic
+- Generating write traffic for testing
+  - should generate `INSERT`, `UPDATE` and `DELETE`
 
 ## Example
+
+**Verify connectivity to the publisher and subscriber in the config**:
+```sh
+./flare verify_connectivity
+```
 
 **Replicating the roles**:
 ```sh

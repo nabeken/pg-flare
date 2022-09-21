@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"os"
 
+	flare "github.com/nabeken/pg-flare"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +16,13 @@ func main() {
 	}
 }
 
+type globalFlags struct {
+	configFile string
+}
+
 func realmain() error {
+	gflags := &globalFlags{}
+
 	rootCmd := &cobra.Command{
 		Use:   "flare",
 		Short: "flare is a command-line tool to help database migration with the logical replication",
@@ -20,6 +30,15 @@ func realmain() error {
 			cmd.PrintErr("please specify a subcommand\n")
 		},
 	}
+
+	rootCmd.PersistentFlags().StringVar(
+		&gflags.configFile,
+		"config",
+		"./flare.yml",
+		"the configuration file",
+	)
+
+	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
 
 	//rootCmd.AddCommand(buildAttackCmd())
 	//rootCmd.AddCommand(buildAttackDBCmd())
@@ -30,6 +49,76 @@ func realmain() error {
 	//rootCmd.AddCommand(buildCreateSubscriptionCmd())
 
 	return rootCmd.Execute()
+}
+
+func buildVerifyConnectivity(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify_connectivity",
+		Short: "Verify connectivity for a given configuration",
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := readConfigFileOrExit(cmd, gflags.configFile)
+
+			if err := verifyConnection(context.TODO(), cmd, cfg); err != nil {
+				cmd.PrintErrf("Failed to verify the connection: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			cmd.Printf("The system identifier for the publisher and the subscriber is OK!\n")
+
+			cmd.Printf("Publisher: %s\n", cfg.Hosts.Publisher.Conn.SystemIdentifier)
+			cmd.Printf("Subscriber: %s\n", cfg.Hosts.Subscriber.Conn.SystemIdentifier)
+
+			return
+		},
+	}
+
+	return cmd
+}
+
+func verifyConnection(ctx context.Context, cmd *cobra.Command, cfg flare.Config) error {
+	pconn, err := flare.ConnectWithVerify(
+		ctx,
+		cfg.Hosts.Publisher.Conn,
+		"postgres",
+	)
+	if err != nil {
+		return fmt.Errorf("verifying the publisher: %w", err)
+	}
+	defer pconn.Close(ctx)
+
+	sconn, err := flare.ConnectWithVerify(
+		ctx,
+		cfg.Hosts.Subscriber.Conn,
+		"postgres",
+	)
+	if err != nil {
+		return fmt.Errorf("verifying the subscriber: %w", err)
+	}
+	defer sconn.Close(ctx)
+
+	return nil
+}
+
+func verifyConnectionOrExit(ctx context.Context, cmd *cobra.Command, cfg flare.Config) {
+}
+
+func readConfigFileOrExit(cmd *cobra.Command, fn string) flare.Config {
+	cfg, err := parseConfigFile(fn)
+	if err != nil {
+		cmd.PrintErrf("Failed to parse the configuration: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	return cfg
+}
+
+func parseConfigFile(fn string) (flare.Config, error) {
+	b, err := os.ReadFile(fn)
+	if err != nil {
+		return flare.Config{}, fmt.Errorf("reading '%s': %w", fn, err)
+	}
+
+	return flare.ParseConfig(b)
 }
 
 //func buildCreateSubscriptionCmd() *cobra.Command {
