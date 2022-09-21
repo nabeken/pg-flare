@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	flare "github.com/nabeken/pg-flare"
 	"github.com/spf13/cobra"
@@ -39,11 +40,11 @@ func realmain() error {
 	)
 
 	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
+	rootCmd.AddCommand(buildReplicateRolesCmd(gflags))
 
 	//rootCmd.AddCommand(buildAttackCmd())
 	//rootCmd.AddCommand(buildAttackDBCmd())
 	//rootCmd.AddCommand(buildDumpRolesCmd())
-	//rootCmd.AddCommand(buildReplicateRolesCmd())
 	//rootCmd.AddCommand(buildReplicateSchemaCmd())
 	//rootCmd.AddCommand(buildCreatePublicationCmd())
 	//rootCmd.AddCommand(buildCreateSubscriptionCmd())
@@ -56,12 +57,9 @@ func buildVerifyConnectivity(gflags *globalFlags) *cobra.Command {
 		Use:   "verify_connectivity",
 		Short: "Verify connectivity for a given configuration",
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg := readConfigFileOrExit(cmd, gflags.configFile)
+			ctx := context.TODO()
 
-			if err := verifyConnection(context.TODO(), cmd, cfg); err != nil {
-				cmd.PrintErrf("Failed to verify the connection: %s\n", err.Error())
-				os.Exit(1)
-			}
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
 			cmd.Printf("The system identifier for the publisher and the subscriber is OK!\n")
 
@@ -99,7 +97,15 @@ func verifyConnection(ctx context.Context, cmd *cobra.Command, cfg flare.Config)
 	return nil
 }
 
-func verifyConnectionOrExit(ctx context.Context, cmd *cobra.Command, cfg flare.Config) {
+func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn string) flare.Config {
+	cfg := readConfigFileOrExit(cmd, fn)
+
+	if err := verifyConnection(ctx, cmd, cfg); err != nil {
+		cmd.PrintErrf("Failed to verify the connection: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	return cfg
 }
 
 func readConfigFileOrExit(cmd *cobra.Command, fn string) flare.Config {
@@ -309,58 +315,41 @@ func parseConfigFile(fn string) (flare.Config, error) {
 //
 //	return cmd
 //}
-//
-//func buildReplicateRolesCmd() *cobra.Command {
-//	var srcDSN, dstDSN string
-//
-//	cmd := &cobra.Command{
-//		Use:   "replicate_roles",
-//		Short: "Replicate roles",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			srcSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(srcDSN)}
-//			dstSUC := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dstDSN)}
-//
-//			log.Print("Reading the roles from the source...")
-//
-//			roles, err := flare.DumpRoles(srcSUC)
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			log.Print("Copying the roles to the destination...")
-//
-//			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
-//			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			fmt.Print(result)
-//			fmt.Print(resultErr)
-//
-//			log.Print("Finished copying the roles to the destination")
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&srcDSN,
-//		"src-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432",
-//		"Source Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("src-super-user-dsn")
-//
-//	cmd.Flags().StringVar(
-//		&dstDSN,
-//		"dst-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432",
-//		"Destination Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("dst-super-user-dsn")
-//
-//	return cmd
-//}
-//
+
+func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "replicate_roles",
+		Short: "Replicate roles from the publisher to the subscriber",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			log.Print("Reading the roles from the source...")
+
+			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Copying the roles to the destination...")
+
+			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
+			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Print(result)
+			fmt.Print(resultErr)
+
+			log.Print("Finished copying the roles to the destination")
+		},
+	}
+
+	return cmd
+}
+
 //func buildDumpRolesCmd() *cobra.Command {
 //	var dsn string
 //

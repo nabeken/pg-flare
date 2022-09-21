@@ -117,15 +117,14 @@ CREATE TABLE IF NOT EXISTS items (
 //	return nil
 //}
 //
-//func DumpRoles(suc SuperUserConfig) (string, error) {
-//	args, err := suc.ConnConfig.PSQLArgs()
-//	if err != nil {
-//		return "", fmt.Errorf("dump roles: %w", err)
-//	}
-//	args.Args = []string{"--roles-only"}
-//
-//	return PGDumpAll(args)
-//}
+
+func DumpRoles(connConfig ConnConfig) (string, error) {
+	args := connConfig.PSQLArgs()
+	args.Args = []string{"--roles-only"}
+
+	return PGDumpAll(args)
+}
+
 //
 //func DumpSchema(suc SuperUserConfig, db string) (string, error) {
 //	args, err := suc.ConnConfig.PSQLArgs()
@@ -183,6 +182,15 @@ func (c ConnConfig) DSNURI(dbName string) string {
 	)
 }
 
+func (c ConnConfig) PSQLArgs() PSQLArgs {
+	return PSQLArgs{
+		User: c.User,
+		Pass: c.Password,
+		Host: c.Host,
+		Port: c.Port,
+	}
+}
+
 func ParseConfig(b []byte) (Config, error) {
 	cfg := Config{}
 
@@ -200,9 +208,9 @@ func ParseConfig(b []byte) (Config, error) {
 
 type PSQLArgs struct {
 	User string
+	Pass string
 	Host string
 	Port string
-	Pass string
 	Args []string
 }
 

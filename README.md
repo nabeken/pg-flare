@@ -58,11 +58,9 @@ SELECT system_identifier FROM pg_control_system();
 ./flare verify_connectivity
 ```
 
-**Replicating the roles**:
+**Replicating the roles from the publisher to the subscriber**:
 ```sh
-./flare replicate_roles \
-  --src-super-user-dsn postgres://postgres:postgres@localhost:5430 \
-  --dst-super-user-dsn postgres://postgres:postgres@localhost:5431
+./flare replicate_roles
 ```
 
 **Replicating the schema in `bench` database**:
