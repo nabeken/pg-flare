@@ -3,7 +3,6 @@ package flare
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"log"
@@ -16,14 +15,15 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 type TrafficGenerator struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
-func NewTrafficGenerator(db *sql.DB) *TrafficGenerator {
-	return &TrafficGenerator{db: db}
+func NewTrafficGenerator(pool *pgxpool.Pool) *TrafficGenerator {
+	return &TrafficGenerator{pool: pool}
 }
 
 func (g *TrafficGenerator) Attack(ctx context.Context) error {
@@ -45,12 +45,13 @@ func (g *TrafficGenerator) WriteNewItem() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	tx, err := g.db.BeginTx(ctx, nil)
+	tx, err := g.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning a new transaction: %w", err)
 	}
 
 	if _, err := tx.Exec(
+		ctx,
 		`INSERT into items values($1, $2);`,
 		uuid.NewString(),
 		uuid.NewString(),
@@ -58,7 +59,7 @@ func (g *TrafficGenerator) WriteNewItem() error {
 		return fmt.Errorf("inserting a new item: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commiting the item: %w", err)
 	}
 
@@ -72,51 +73,41 @@ CREATE TABLE IF NOT EXISTS items (
 );
 `
 
-//func CreateTestTable(suc SuperUserConfig, dbUser string, dropDBBefore bool) error {
-//	db, err := suc.Open()
-//	if err != nil {
-//		return fmt.Errorf("opening the database connection with the super user: %w", err)
-//	}
-//
-//	defer db.Close()
-//
-//	if err := db.Ping(); err != nil {
-//		return fmt.Errorf("pinging the database: %w", err)
-//	}
-//
-//	if dropDBBefore {
-//		if _, err = db.Exec(`DROP DATABASE flare_test;`); err != nil {
-//			return fmt.Errorf("dropping a database: %w", err)
-//		}
-//	}
-//
-//	if _, err = db.Exec(`CREATE DATABASE flare_test;`); err != nil {
-//		return fmt.Errorf("creating a database: %w", err)
-//	}
-//
-//	newSUC, err := suc.SwitchDatabase("flare_test")
-//	if err != nil {
-//		return fmt.Errorf("chaging to the new database: %w", err)
-//	}
-//
-//	newDB, err := newSUC.Open()
-//	if err != nil {
-//		return fmt.Errorf("switching to the new database: %w", err)
-//	}
-//
-//	if _, err := newDB.Exec(flareDatabaseSchema); err != nil {
-//		return fmt.Errorf("creating tables: %w", err)
-//	}
-//
-//	if _, err := newDB.Exec(
-//		fmt.Sprintf(`GRANT ALL ON items TO %s;`, quoteIdentifier(dbUser)),
-//	); err != nil {
-//		return fmt.Errorf("granting access to the dbuser: %w", err)
-//	}
-//
-//	return nil
-//}
-//
+func CreateTestTable(ctx context.Context, connConfig ConnConfig, dbUser string, dropDBBefore bool) error {
+	conn, err := Connect(ctx, connConfig, "postgres")
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	if dropDBBefore {
+		if _, err = conn.Exec(ctx, `DROP DATABASE flare_test;`); err != nil {
+			return fmt.Errorf("dropping a database: %w", err)
+		}
+	}
+
+	if _, err = conn.Exec(ctx, `CREATE DATABASE flare_test;`); err != nil {
+		return fmt.Errorf("creating a database: %w", err)
+	}
+
+	newConn, err := Connect(ctx, connConfig, "flare_test")
+	if err != nil {
+		return fmt.Errorf("chaging to the new database: %w", err)
+	}
+
+	if _, err := newConn.Exec(ctx, flareDatabaseSchema); err != nil {
+		return fmt.Errorf("creating tables: %w", err)
+	}
+
+	if _, err := newConn.Exec(
+		ctx,
+		fmt.Sprintf(`GRANT ALL ON items TO %s;`, quoteIdentifier(dbUser)),
+	); err != nil {
+		return fmt.Errorf("granting access to the dbuser: %w", err)
+	}
+
+	return nil
+}
 
 func DumpRoles(connConfig ConnConfig) (string, error) {
 	args := connConfig.PSQLArgs()
@@ -144,7 +135,12 @@ func AlterTableReplicaIdentityFull(tbl string) string {
 }
 
 func CreateSubscriptionQuery(subName, connInfo, pubName string) string {
-	return fmt.Sprintf(`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION "%s";`, subName, connInfo, pubName)
+	return fmt.Sprintf(
+		`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s;`,
+		quoteIdentifier(subName),
+		quoteIdentifier(connInfo),
+		quoteIdentifier(pubName),
+	)
 }
 
 type Config struct {

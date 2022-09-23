@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jackc/pgx/v4/pgxpool"
 	flare "github.com/nabeken/pg-flare"
 	"github.com/spf13/cobra"
 )
@@ -44,9 +45,8 @@ func realmain() error {
 	rootCmd.AddCommand(buildReplicateSchemaCmd(gflags))
 	rootCmd.AddCommand(buildCreatePublicationCmd(gflags))
 	rootCmd.AddCommand(buildCreateSubscriptionCmd(gflags))
-
-	//rootCmd.AddCommand(buildAttackCmd())
-	//rootCmd.AddCommand(buildAttackDBCmd())
+	rootCmd.AddCommand(buildCreateAttackDBCmd(gflags))
+	rootCmd.AddCommand(buildAttackCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -337,79 +337,90 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 	return cmd
 }
 
-//
-//func buildAttackCmd() *cobra.Command {
-//	var dsn string
-//
-//	cmd := &cobra.Command{
-//		Use:   "attack",
-//		Short: "Generate write traffic against `flare_test` table for testing",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			db, err := flare.Open(dsn)
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			gen := flare.NewTrafficGenerator(db)
-//
-//			log.Print("Begin to attack the database...")
-//
-//			if err := gen.Attack(context.Background()); err != nil {
-//				log.Println(err)
-//			}
-//
-//			log.Print("Finished attacking the database...")
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&dsn,
-//		"dsn",
-//		"postgres://app:app@localhost:5432/flare_test?sslmode=disable",
-//		"Data Source Name (must not be a super user)",
-//	)
-//
-//	return cmd
-//}
-//
-//func buildAttackDBCmd() *cobra.Command {
-//	var dsn, dbUser string
-//	var dropDBBefore bool
-//
-//	cmd := &cobra.Command{
-//		Use:   "create_attack_db",
-//		Short: "Create database for testing",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			if err := flare.CreateTestTable(
-//				flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)},
-//				dbUser,
-//				dropDBBefore,
-//			); err != nil {
-//				log.Fatal(err)
-//			}
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&dsn,
-//		"super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
-//		"Super User Data Source Name",
-//	)
-//
-//	cmd.Flags().StringVar(
-//		&dbUser,
-//		"dbuser",
-//		"app",
-//		"Database User (must not be a super user)",
-//	)
-//
-//	cmd.Flags().BoolVar(
-//		&dropDBBefore,
-//		"drop-db-before",
-//		false,
-//		"Drop the database before creating it if exists",
-//	)
-//
-//	return cmd
-//}
+func buildAttackCmd(gflags *globalFlags) *cobra.Command {
+	var dbUser, password string
+
+	cmd := &cobra.Command{
+		Use:   "attack",
+		Short: "Generate write traffic against `flare_test` table in the publisher for testing",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			cfg.Hosts.Publisher.Conn.User = dbUser
+			cfg.Hosts.Publisher.Conn.Password = password
+
+			pool, err := pgxpool.Connect(ctx, cfg.Hosts.Publisher.Conn.DSNURI("flare_test"))
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to flare_test database: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			gen := flare.NewTrafficGenerator(pool)
+
+			log.Print("Begin to attack the database...")
+
+			if err := gen.Attack(ctx); err != nil {
+				log.Println(err)
+			}
+
+			log.Print("Finished attacking the database...")
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&dbUser,
+		"dbuser",
+		"app",
+		"Data User (must not be a super user)",
+	)
+	cmd.Flags().StringVar(
+		&password,
+		"password",
+		"app",
+		"Data User Password",
+	)
+
+	return cmd
+}
+
+func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
+	var dropDBBefore bool
+	var dbUser string
+
+	cmd := &cobra.Command{
+		Use:   "create_attack_db",
+		Short: "Create database for testing",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			log.Print("Creating the `flare_test` database in the publisher for testing...")
+
+			if err := flare.CreateTestTable(
+				ctx,
+				cfg.Hosts.Publisher.Conn,
+				dbUser,
+				dropDBBefore,
+			); err != nil {
+				log.Fatal(err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&dbUser,
+		"dbuser",
+		"app",
+		"Database User (must not be a super user)",
+	)
+
+	cmd.Flags().BoolVar(
+		&dropDBBefore,
+		"drop-db-before",
+		false,
+		"Drop the database before creating it if exists",
+	)
+
+	return cmd
+}
