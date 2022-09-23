@@ -43,11 +43,13 @@ func TestConfig(t *testing.T) {
 		Hosts: Hosts{
 			Publisher: Host{
 				Conn: ConnConfig{
-					User:             "postgres1",
-					Password:         "password1",
-					Host:             "publisher",
-					Port:             "5430",
-					SystemIdentifier: "12345",
+					User:              "postgres1",
+					Password:          "password1",
+					Host:              "publisher",
+					HostViaSubscriber: "publisher_sub",
+					Port:              "5430",
+					PortViaSubscriber: "5432",
+					SystemIdentifier:  "12345",
 				},
 			},
 			Subscriber: Host{
@@ -60,6 +62,30 @@ func TestConfig(t *testing.T) {
 				},
 			},
 		},
+		Publications: map[string]Publication{
+			"pubtable1": {
+				PubName: "publication1-name",
+				ReplicaIdentityFullTables: []string{
+					"full1", "full2",
+				},
+			},
+			"pubtable2": {
+				PubName: "publication2-name",
+				ReplicaIdentityFullTables: []string{
+					"full3", "full4",
+				},
+			},
+		},
+		Subscriptions: map[string]Subscription{
+			"benchsub1": {
+				DBName:  "pubtable1",
+				PubName: "publication1-name",
+			},
+			"benchsub2": {
+				DBName:  "pubtable2",
+				PubName: "publication2-name",
+			},
+		},
 	}
 
 	ymlConfig := mustReadTestData("example.yml")
@@ -68,6 +94,7 @@ func TestConfig(t *testing.T) {
 	require.NoError(err)
 	require.Equal(expected, cfg)
 	require.Equal("postgres://postgres1:password1@publisher:5430/", cfg.Hosts.Publisher.Conn.DSNURI(""))
+	require.Equal("postgres://postgres1:password1@publisher_sub:5432/", cfg.Hosts.Publisher.Conn.DSNURIForSubscriber(""))
 }
 
 func TestPGDump(t *testing.T) {

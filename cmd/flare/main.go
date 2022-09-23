@@ -42,11 +42,11 @@ func realmain() error {
 	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
 	rootCmd.AddCommand(buildReplicateRolesCmd(gflags))
 	rootCmd.AddCommand(buildReplicateSchemaCmd(gflags))
+	rootCmd.AddCommand(buildCreatePublicationCmd(gflags))
+	rootCmd.AddCommand(buildCreateSubscriptionCmd(gflags))
 
 	//rootCmd.AddCommand(buildAttackCmd())
 	//rootCmd.AddCommand(buildAttackDBCmd())
-	//rootCmd.AddCommand(buildCreatePublicationCmd())
-	//rootCmd.AddCommand(buildCreateSubscriptionCmd())
 
 	return rootCmd.Execute()
 }
@@ -125,136 +125,113 @@ func parseConfigFile(fn string) (flare.Config, error) {
 	return flare.ParseConfig(b)
 }
 
-//func buildCreateSubscriptionCmd() *cobra.Command {
-//	var pubDSN, subDSN string
-//
-//	cmd := &cobra.Command{
-//		Use:   "create_subscription [SUBNAME]",
-//		Short: "Create a subscription in the given database in the DSN",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			if len(args) != 1 {
-//				cmd.PrintErr("please specify a subscription name\n\n")
-//				cmd.Usage()
-//				os.Exit(1)
-//			}
-//
-//			subName := args[0]
-//
-//			pubConn := flare.MustNewConnConfig(pubDSN)
-//			pubQuery := pubConn.MustQuery()
-//			pubName := pubQuery.Get("x-publication")
-//
-//			pubConnInfo, err := pubConn.StdConnInfo()
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			log.Print(pubConnInfo)
-//
-//			subQuery := flare.CreateSubscriptionQuery(subName, pubConnInfo, pubName)
-//
-//			log.Print("Creating a subscription...")
-//
-//			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(subDSN)}
-//			db, err := suc.Open()
-//
-//			defer db.Close()
-//
-//			if err := db.Ping(); err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			if _, err = db.Exec(subQuery); err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			log.Print("The subscription has been created")
-//		},
-//	}
-//
-//	cmd.Flags().StringVar(
-//		&subDSN,
-//		"sub-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/DBNAME",
-//		"Subscriber Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("sub-super-user-dsn")
-//
-//	cmd.Flags().StringVar(
-//		&pubDSN,
-//		"pub-super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/DBNAME?x-publication=PUBNAME",
-//		"Publisher Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("pub-super-user-dsn")
-//
-//	return cmd
-//}
-//
-//func buildCreatePublicationCmd() *cobra.Command {
-//	var dsn string
-//	var replicaIdentityFullTables []string
-//
-//	cmd := &cobra.Command{
-//		Use:   "create_publication [PUBNAME]",
-//		Short: "Create a publication in the given database in the DSN",
-//		Run: func(cmd *cobra.Command, args []string) {
-//			if len(args) != 1 {
-//				cmd.PrintErr("please specify a publication name\n\n")
-//				cmd.Usage()
-//				os.Exit(1)
-//			}
-//
-//			pubName := args[0]
-//			suc := flare.SuperUserConfig{ConnConfig: flare.MustNewConnConfig(dsn)}
-//
-//			log.Print("Creating a publisher in the source...")
-//
-//			db, err := suc.Open()
-//			if err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			defer db.Close()
-//
-//			if err := db.Ping(); err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			for _, tbl := range replicaIdentityFullTables {
-//				log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
-//
-//				if _, err = db.Exec(flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
-//					log.Fatal(err)
-//				}
-//			}
-//
-//			if _, err = db.Exec(flare.CreatePublicationQuery(pubName)); err != nil {
-//				log.Fatal(err)
-//			}
-//
-//			log.Print("Publisher in the source has been created")
-//		},
-//	}
-//
-//	cmd.Flags().StringArrayVar(
-//		&replicaIdentityFullTables,
-//		"replica-identity-full",
-//		[]string{},
-//		"Table to set REPLICA IDENTITY to FULL",
-//	)
-//
-//	cmd.Flags().StringVar(
-//		&dsn,
-//		"super-user-dsn",
-//		"postgres://postgres:postgres@localhost:5432/DBNAME",
-//		"Super User Data Source Name",
-//	)
-//	cmd.MarkFlagRequired("super-user-dsn")
-//
-//	return cmd
-//}
-//
+func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create_subscription [SUBNAME]",
+		Short: "Create a subscription in the subscriber",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a subscription name in the config\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			subName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			subCfg, ok := cfg.Subscriptions[subName]
+			if !ok {
+				cmd.PrintErrf("Subscription '%s' is not found in the config\n", subName)
+				os.Exit(1)
+			}
+
+			subQuery := flare.CreateSubscriptionQuery(
+				subName,
+				cfg.Hosts.Publisher.Conn.DSNURIForSubscriber(subCfg.DBName),
+				subCfg.PubName,
+			)
+
+			log.Print("Creating a subscription...")
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, subCfg.DBName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			if _, err = conn.Exec(ctx, subQuery); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("The subscription has been created")
+		},
+	}
+
+	return cmd
+}
+
+func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create_publication [DBNAME]",
+		Short: "Create a publication in the given database in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			pubCfg, ok := cfg.Publications[dbName]
+			if !ok {
+				cmd.PrintErrf("Database '%s' is not found in the config\n", dbName)
+				os.Exit(1)
+			}
+
+			log.Print("Creating a publication in the publisher...")
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
+				log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
+
+				if _, err = conn.Exec(ctx, flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
+					log.Fatal(err)
+				}
+			}
+
+			if _, err = conn.Exec(ctx, flare.CreatePublicationQuery(pubCfg.PubName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Publisher in the source has been created")
+		},
+	}
+
+	return cmd
+}
 
 func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 	var onlyDump bool

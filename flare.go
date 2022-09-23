@@ -135,21 +135,22 @@ func DumpSchema(connConfig ConnConfig, db string) (string, error) {
 	return PGDump(args, db)
 }
 
-//
-//func CreatePublicationQuery(pubname string) string {
-//	return fmt.Sprintf(`CREATE PUBLICATION %s FOR ALL TABLES;`, quoteIdentifier(pubname))
-//}
-//
-//func AlterTableReplicaIdentityFull(tbl string) string {
-//	return fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY FULL;`, quoteIdentifier(tbl))
-//}
-//
-//func CreateSubscriptionQuery(subName, pubDSN, pubName string) string {
-//	return fmt.Sprintf(`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s;`, subName, pubDSN, pubName)
-//}
+func CreatePublicationQuery(pubname string) string {
+	return fmt.Sprintf(`CREATE PUBLICATION %s FOR ALL TABLES;`, quoteIdentifier(pubname))
+}
+
+func AlterTableReplicaIdentityFull(tbl string) string {
+	return fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY FULL;`, quoteIdentifier(tbl))
+}
+
+func CreateSubscriptionQuery(subName, connInfo, pubName string) string {
+	return fmt.Sprintf(`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION "%s";`, subName, connInfo, pubName)
+}
 
 type Config struct {
-	Hosts Hosts `yaml:"hosts"`
+	Hosts         Hosts                   `yaml:"hosts"`
+	Publications  map[string]Publication  `yaml:"publications"`
+	Subscriptions map[string]Subscription `yaml:"subscriptions"`
 }
 
 type Hosts struct {
@@ -161,11 +162,26 @@ type Host struct {
 	Conn ConnConfig `yaml:"conn"`
 }
 
+type Publication struct {
+	PubName                   string   `yaml:"pubname"`
+	ReplicaIdentityFullTables []string `yaml:"replica_identity_full_tables"`
+}
+
+type Subscription struct {
+	DBName  string `yaml:"dbname"`
+	PubName string `yaml:"pubname"`
+}
+
 type ConnConfig struct {
-	User             string `yaml:"user" validate:"required"`
-	Password         string `yaml:"password" validate:"required"`
-	Host             string `yaml:"host" validate:"required"`
-	Port             string `yaml:"port" validate:"required"`
+	User     string `yaml:"user" validate:"required"`
+	Password string `yaml:"password" validate:"required"`
+
+	Host              string `yaml:"host" validate:"required"`
+	HostViaSubscriber string `yaml:"host_via_subscriber"`
+
+	Port              string `yaml:"port" validate:"required"`
+	PortViaSubscriber string `yaml:"port_via_subscriber"`
+
 	SystemIdentifier string `yaml:"system_identifier" validate:"required"`
 }
 
@@ -174,6 +190,25 @@ func (c ConnConfig) DSNURI(dbName string) string {
 		"postgres://%s:%s@%s:%s/%s",
 		c.User, c.Password,
 		c.Host, c.Port,
+		dbName,
+	)
+}
+
+func (c ConnConfig) DSNURIForSubscriber(dbName string) string {
+	host := c.Host
+	if shost := c.HostViaSubscriber; shost != "" {
+		host = shost
+	}
+
+	port := c.Port
+	if sport := c.PortViaSubscriber; sport != "" {
+		port = sport
+	}
+
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s",
+		c.User, c.Password,
+		host, port,
 		dbName,
 	)
 }

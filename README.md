@@ -14,15 +14,19 @@ I found PostgreSQL's logical replication can be used for minimizing downtime for
 
 `flare` requires a DSN configuration in YAML. It allows to have a pre-defined, pre-validated configuration so `flare` won't touch an unexpected database all the time.
 
+Configuration is designed for a single publisher and a subscriber model but allows to have multiple publication and subscriptions.
+
 ```yaml
 hosts:
   publisher:
       conn:
         user:
         host:
-        port:
+        host_via_subscriber: # hostname that can be resolved from the subscriber
+        port: # port that can be accessible from the subscriber
         password:
         system_identifier:
+
   subscriber:
       conn:
         user:
@@ -30,6 +34,17 @@ hosts:
         port:
         password:
         system_identifier
+
+publications:
+  bench: # dbname
+    pubname: bench
+    replica_identity_full_tables:
+      - pgbench_history
+
+subscriptions:
+  bench1: # subname
+    dbname: bench
+    pubname: bench
 ```
 
 `system_identifier` is very important. It makes sure of a database you specify matches exactly what you expect. You can get `system_identifier` by using the following query:
@@ -43,7 +58,9 @@ SELECT system_identifier FROM pg_control_system();
 - Checking connectivity
 - Replicating roles from the publishder to the subscriber
 - Replicating schemas from the publisher to the subscriber
-- Creating a publisher and subscriber
+- Installing all of the extensions in the publisher
+- Creating a publisher
+- Creating a subscriber
 - Monitoring the replication
 - Pausing write traffic
 - Checking whether or not write traffic is paused
@@ -66,4 +83,14 @@ SELECT system_identifier FROM pg_control_system();
 **Replicating the schema in a given database (ie. `bench` in the example)**:
 ```sh
 ./flare replicate_schema bench
+```
+
+**Creating a publication in the publisher for a given database (ie. `bench` in the example)**:
+```sh
+./flare create_publication bench
+```
+
+**Creating a subscription in the subscriber for a given database (ie. `bench` in the example)**:
+```sh
+./flare create_publication bench
 ```
