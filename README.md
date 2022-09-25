@@ -61,10 +61,8 @@ SELECT system_identifier FROM pg_control_system();
 - Installing all of the extensions in the publisher
 - Creating a publisher
 - Creating a subscriber
-- Monitoring the replication
-- Pausing write traffic
-- Checking whether or not write traffic is paused
-- Resuming write traffic
+- Pausing write traffic against the publisher
+- Resuming write traffic in case of emergency
 - Generating write traffic for testing
   - should generate `INSERT`, `UPDATE` and `DELETE`
 
@@ -92,5 +90,24 @@ SELECT system_identifier FROM pg_control_system();
 
 **Creating a subscription in the subscriber for a given database (ie. `bench` in the example)**:
 ```sh
-./flare create_publication bench
+./flare create_subscription bench
+```
+
+**Generating a test traffic in the `flare_test` database in the publisher**:
+```sh
+# create a database
+./flare create_attack_db --drop-db-before
+
+# run the test (press Ctrl-C to stop)
+./flare attack
+```
+
+**Pausing write traffic against the database (ie. `bench` in the example)**:
+```sh
+./flare pause_write bench
+```
+
+**Resume write traffic against the database (ie. `bench` in the example)**:
+```sh
+./flare resume_write bench
 ```

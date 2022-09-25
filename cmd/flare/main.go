@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	flare "github.com/nabeken/pg-flare"
@@ -47,6 +48,8 @@ func realmain() error {
 	rootCmd.AddCommand(buildCreateSubscriptionCmd(gflags))
 	rootCmd.AddCommand(buildCreateAttackDBCmd(gflags))
 	rootCmd.AddCommand(buildAttackCmd(gflags))
+	rootCmd.AddCommand(buildPauseWriteCmd(gflags))
+	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -421,6 +424,109 @@ func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 		false,
 		"Drop the database before creating it if exists",
 	)
+
+	return cmd
+}
+
+func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pause_write",
+		Short: "Pause write traffic by revoking and killing access to a given databas in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Revoking the access against '%s' database...", dbName)
+
+			if _, err = conn.Exec(ctx, flare.RevokeConnectionQuery(dbName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Database access against '%s' database has been revoked!", dbName)
+
+			log.Printf("Killing the existing connections against '%s' database...", dbName)
+
+			zeroConnTimes := 0
+
+			// will retry until flare sees 3 times zero connections in a row
+			for zeroConnTimes <= 3 {
+				ret, err := conn.Exec(ctx, flare.KillConnectionQuery, dbName)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if ret.RowsAffected() > 0 {
+					// reset to zero to see whether there are still remaining connections again...
+					zeroConnTimes = 0
+				} else {
+					zeroConnTimes++
+				}
+
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			log.Printf("No connections against '%s' database are detected!", dbName)
+		},
+	}
+
+	return cmd
+}
+
+func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "resume_write",
+		Short: "Resume write traffic by granting access to a given databas in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Revoking the access against '%s' database...", dbName)
+
+			if _, err = conn.Exec(ctx, flare.GrantConnectionQuery(dbName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Database access against '%s' database has been granted!!", dbName)
+		},
+	}
 
 	return cmd
 }

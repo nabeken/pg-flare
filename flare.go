@@ -138,10 +138,33 @@ func CreateSubscriptionQuery(subName, connInfo, pubName string) string {
 	return fmt.Sprintf(
 		`CREATE SUBSCRIPTION %s CONNECTION '%s' PUBLICATION %s;`,
 		quoteIdentifier(subName),
-		quoteIdentifier(connInfo),
+		connInfo,
 		quoteIdentifier(pubName),
 	)
 }
+
+func RevokeConnectionQuery(dbName string) string {
+	return fmt.Sprintf(
+		`REVOKE CONNECT ON DATABASE %s FROM PUBLIC;`,
+		quoteIdentifier(dbName),
+	)
+}
+
+func GrantConnectionQuery(dbName string) string {
+	return fmt.Sprintf(
+		`GRANT CONNECT ON DATABASE %s TO PUBLIC;`,
+		quoteIdentifier(dbName),
+	)
+}
+
+const KillConnectionQuery = `
+	SELECT pg_terminate_backend(pid)
+	FROM pg_stat_activity
+	WHERE
+		  pid <> pg_backend_pid()
+	  AND usename <> 'postgres' -- skip replication slots
+	  AND datname = $1
+	;`
 
 type Config struct {
 	Hosts         Hosts                   `yaml:"hosts"`
