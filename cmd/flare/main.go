@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v4/pgxpool"
 	flare "github.com/nabeken/pg-flare"
 	"github.com/spf13/cobra"
 )
@@ -17,7 +19,13 @@ func main() {
 	}
 }
 
+type globalFlags struct {
+	configFile string
+}
+
 func realmain() error {
+	gflags := &globalFlags{}
+
 	rootCmd := &cobra.Command{
 		Use:   "flare",
 		Short: "flare is a command-line tool to help database migration with the logical replication",
@@ -26,55 +34,198 @@ func realmain() error {
 		},
 	}
 
-	rootCmd.AddCommand(buildAttackCmd())
-	rootCmd.AddCommand(buildAttackDBCmd())
-	rootCmd.AddCommand(buildDumpRolesCmd())
-	rootCmd.AddCommand(buildReplicateRolesCmd())
-	rootCmd.AddCommand(buildReplicateSchemaCmd())
-	rootCmd.AddCommand(buildCreatePublicationCmd())
+	rootCmd.PersistentFlags().StringVar(
+		&gflags.configFile,
+		"config",
+		"./flare.yml",
+		"the configuration file",
+	)
+
+	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
+	rootCmd.AddCommand(buildReplicateRolesCmd(gflags))
+	rootCmd.AddCommand(buildReplicateSchemaCmd(gflags))
+	rootCmd.AddCommand(buildCreatePublicationCmd(gflags))
+	rootCmd.AddCommand(buildCreateSubscriptionCmd(gflags))
+	rootCmd.AddCommand(buildCreateAttackDBCmd(gflags))
+	rootCmd.AddCommand(buildAttackCmd(gflags))
+	rootCmd.AddCommand(buildPauseWriteCmd(gflags))
+	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
 
 	return rootCmd.Execute()
 }
 
-func buildCreatePublicationCmd() *cobra.Command {
-	var dsn string
-	var replicaIdentityFullTables []string
-
+func buildVerifyConnectivity(gflags *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create_publication [PUBNAME]",
-		Short: "Create a publication in the given database in the DSN",
+		Use:   "verify_connectivity",
+		Short: "Verify connectivity for a given configuration",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			cmd.Printf("The system identifier for the publisher and the subscriber is OK!\n")
+
+			cmd.Printf("Publisher: %s\n", cfg.Hosts.Publisher.Conn.SystemIdentifier)
+			cmd.Printf("Subscriber: %s\n", cfg.Hosts.Subscriber.Conn.SystemIdentifier)
+
+			return
+		},
+	}
+
+	return cmd
+}
+
+func verifyConnection(ctx context.Context, cmd *cobra.Command, cfg flare.Config) error {
+	pconn, err := flare.ConnectWithVerify(
+		ctx,
+		cfg.Hosts.Publisher.Conn,
+		"postgres",
+	)
+	if err != nil {
+		return fmt.Errorf("verifying the publisher: %w", err)
+	}
+	defer pconn.Close(ctx)
+
+	sconn, err := flare.ConnectWithVerify(
+		ctx,
+		cfg.Hosts.Subscriber.Conn,
+		"postgres",
+	)
+	if err != nil {
+		return fmt.Errorf("verifying the subscriber: %w", err)
+	}
+	defer sconn.Close(ctx)
+
+	return nil
+}
+
+func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn string) flare.Config {
+	cfg := readConfigFileOrExit(cmd, fn)
+
+	if err := verifyConnection(ctx, cmd, cfg); err != nil {
+		cmd.PrintErrf("Failed to verify the connection: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	return cfg
+}
+
+func readConfigFileOrExit(cmd *cobra.Command, fn string) flare.Config {
+	cfg, err := parseConfigFile(fn)
+	if err != nil {
+		cmd.PrintErrf("Failed to parse the configuration: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	return cfg
+}
+
+func parseConfigFile(fn string) (flare.Config, error) {
+	b, err := os.ReadFile(fn)
+	if err != nil {
+		return flare.Config{}, fmt.Errorf("reading '%s': %w", fn, err)
+	}
+
+	return flare.ParseConfig(b)
+}
+
+func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create_subscription [SUBNAME]",
+		Short: "Create a subscription in the subscriber",
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) != 1 {
-				cmd.PrintErr("please specify a publication name\n\n")
+				cmd.PrintErr("please specify a subscription name in the config\n\n")
 				cmd.Usage()
 				os.Exit(1)
 			}
 
-			pubName := args[0]
-			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
+			subName := args[0]
 
-			log.Print("Creating a publisher in the source...")
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			db, err := suc.Open()
+			subCfg, ok := cfg.Subscriptions[subName]
+			if !ok {
+				cmd.PrintErrf("Subscription '%s' is not found in the config\n", subName)
+				os.Exit(1)
+			}
+
+			subQuery := flare.CreateSubscriptionQuery(
+				subName,
+				cfg.Hosts.Publisher.Conn.DSNURIForSubscriber(subCfg.DBName),
+				subCfg.PubName,
+			)
+
+			log.Print("Creating a subscription...")
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, subCfg.DBName)
 			if err != nil {
+				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
 				log.Fatal(err)
 			}
 
-			defer db.Close()
-
-			if err := db.Ping(); err != nil {
+			if _, err = conn.Exec(ctx, subQuery); err != nil {
 				log.Fatal(err)
 			}
 
-			for _, tbl := range replicaIdentityFullTables {
+			log.Print("The subscription has been created")
+		},
+	}
+
+	return cmd
+}
+
+func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create_publication [DBNAME]",
+		Short: "Create a publication in the given database in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			pubCfg, ok := cfg.Publications[dbName]
+			if !ok {
+				cmd.PrintErrf("Database '%s' is not found in the config\n", dbName)
+				os.Exit(1)
+			}
+
+			log.Print("Creating a publication in the publisher...")
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
 				log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
 
-				if _, err = db.Exec(flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
+				if _, err = conn.Exec(ctx, flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
 					log.Fatal(err)
 				}
 			}
 
-			if _, err = db.Exec(flare.CreatePublicationQuery(pubName)); err != nil {
+			if _, err = conn.Exec(ctx, flare.CreatePublicationQuery(pubCfg.PubName)); err != nil {
 				log.Fatal(err)
 			}
 
@@ -82,26 +233,11 @@ func buildCreatePublicationCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringArrayVar(
-		&replicaIdentityFullTables,
-		"replica-identity-full",
-		[]string{},
-		"Table to set REPLICA IDENTITY to FULL",
-	)
-
-	cmd.Flags().StringVar(
-		&dsn,
-		"super-user-dsn",
-		"",
-		"Super User Data Source Name",
-	)
-	cmd.MarkFlagRequired("super-user-dsn")
-
 	return cmd
 }
 
-func buildReplicateSchemaCmd() *cobra.Command {
-	var srcDSN, dstDSN string
+func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
+	var onlyDump bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_schema [DBNAME]",
@@ -115,19 +251,25 @@ func buildReplicateSchemaCmd() *cobra.Command {
 
 			dbName := args[0]
 
-			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
-			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			log.Print("Reading the schema from the source...")
+			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
 
-			schema, err := flare.DumpSchema(srcSUC, dbName)
+			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			log.Print("Copying the schema to the destination...")
+			if onlyDump {
+				fmt.Print(schema)
+				log.Print("no replication to the subscriber was made as per request in the flag")
+				os.Exit(0)
+			}
 
-			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
+			log.Print("Copying the schema to the subscriber...")
+
+			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
 			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(schema))
 			if err != nil {
 				log.Fatal(err)
@@ -136,49 +278,46 @@ func buildReplicateSchemaCmd() *cobra.Command {
 			fmt.Print(result)
 			fmt.Print(resultErr)
 
-			log.Print("Finished copying the roles to the destination")
+			log.Print("Finished copying the schema to the subscriber")
 		},
 	}
 
-	cmd.Flags().StringVar(
-		&srcDSN,
-		"src-super-user-dsn",
-		"",
-		"Source Super User Data Source Name",
+	cmd.Flags().BoolVar(
+		&onlyDump,
+		"only-dump",
+		false,
+		"Only dump the schema instead of replicating to the subscriber",
 	)
-	cmd.MarkFlagRequired("src-super-user-dsn")
-
-	cmd.Flags().StringVar(
-		&dstDSN,
-		"dst-super-user-dsn",
-		"",
-		"Destination Super User Data Source Name",
-	)
-	cmd.MarkFlagRequired("dst-super-user-dsn")
 
 	return cmd
 }
 
-func buildReplicateRolesCmd() *cobra.Command {
-	var srcDSN, dstDSN string
+func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
+	var onlyDump bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_roles",
-		Short: "Replicate roles",
+		Short: "Replicate roles from the publisher to the subscriber",
 		Run: func(cmd *cobra.Command, args []string) {
-			srcSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(srcDSN)}
-			dstSUC := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dstDSN)}
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			log.Print("Reading the roles from the source...")
+			log.Print("Reading the roles from the publisher...")
 
-			roles, err := flare.DumpRoles(srcSUC)
+			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			log.Print("Copying the roles to the destination...")
+			if onlyDump {
+				fmt.Print(roles)
+				log.Print("no replication to the subscriber was made as per request in the flag")
+				os.Exit(0)
+			}
 
-			psqlArgs := dstSUC.ConnConfig.MustPSQLArgs()
+			log.Print("Copying the roles to the subscriber...")
+
+			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
 			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
 			if err != nil {
 				log.Fatal(err)
@@ -187,74 +326,44 @@ func buildReplicateRolesCmd() *cobra.Command {
 			fmt.Print(result)
 			fmt.Print(resultErr)
 
-			log.Print("Finished copying the roles to the destination")
+			log.Print("Finished copying the roles to the subscriber")
 		},
 	}
 
-	cmd.Flags().StringVar(
-		&srcDSN,
-		"src-super-user-dsn",
-		"",
-		"Source Super User Data Source Name",
-	)
-	cmd.MarkFlagRequired("src-super-user-dsn")
-
-	cmd.Flags().StringVar(
-		&dstDSN,
-		"dst-super-user-dsn",
-		"",
-		"Destination Super User Data Source Name",
-	)
-	cmd.MarkFlagRequired("dst-super-user-dsn")
-
-	return cmd
-}
-
-func buildDumpRolesCmd() *cobra.Command {
-	var dsn string
-
-	cmd := &cobra.Command{
-		Use:   "dump_roles",
-		Short: "Dump roles",
-		Run: func(cmd *cobra.Command, args []string) {
-			suc := flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)}
-
-			roles, err := flare.DumpRoles(suc)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			fmt.Print(roles)
-		},
-	}
-
-	cmd.Flags().StringVar(
-		&dsn,
-		"super-user-dsn",
-		"postgres://postgres:postgres@localhost:5432/",
-		"Super User Data Source Name",
+	cmd.Flags().BoolVar(
+		&onlyDump,
+		"only-dump",
+		false,
+		"Only dump the roles instead of replicating to the subscriber",
 	)
 
 	return cmd
 }
 
-func buildAttackCmd() *cobra.Command {
-	var dsn string
+func buildAttackCmd(gflags *globalFlags) *cobra.Command {
+	var dbUser, password string
 
 	cmd := &cobra.Command{
 		Use:   "attack",
-		Short: "Generate write traffic against `flare_test` table for testing",
+		Short: "Generate write traffic against `flare_test` table in the publisher for testing",
 		Run: func(cmd *cobra.Command, args []string) {
-			db, err := flare.Open(dsn)
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			cfg.Hosts.Publisher.Conn.User = dbUser
+			cfg.Hosts.Publisher.Conn.Password = password
+
+			pool, err := pgxpool.Connect(ctx, cfg.Hosts.Publisher.Conn.DSNURI("flare_test"))
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrf("Failed to connect to flare_test database: %s\n", err.Error())
+				os.Exit(1)
 			}
 
-			gen := flare.NewTrafficGenerator(db)
+			gen := flare.NewTrafficGenerator(pool)
 
 			log.Print("Begin to attack the database...")
 
-			if err := gen.Attack(context.Background()); err != nil {
+			if err := gen.Attack(ctx); err != nil {
 				log.Println(err)
 			}
 
@@ -263,25 +372,37 @@ func buildAttackCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(
-		&dsn,
-		"dsn",
-		"postgres://app:app@localhost:5432/flare_test?sslmode=disable",
-		"Data Source Name (must not be a super user)",
+		&dbUser,
+		"dbuser",
+		"app",
+		"Data User (must not be a super user)",
+	)
+	cmd.Flags().StringVar(
+		&password,
+		"password",
+		"app",
+		"Data User Password",
 	)
 
 	return cmd
 }
 
-func buildAttackDBCmd() *cobra.Command {
-	var dsn, dbUser string
+func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 	var dropDBBefore bool
+	var dbUser string
 
 	cmd := &cobra.Command{
 		Use:   "create_attack_db",
 		Short: "Create database for testing",
 		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			log.Print("Creating the `flare_test` database in the publisher for testing...")
+
 			if err := flare.CreateTestTable(
-				flare.SuperUserConfig{ConnConfig: flare.NewConnConfig(dsn)},
+				ctx,
+				cfg.Hosts.Publisher.Conn,
 				dbUser,
 				dropDBBefore,
 			); err != nil {
@@ -289,13 +410,6 @@ func buildAttackDBCmd() *cobra.Command {
 			}
 		},
 	}
-
-	cmd.Flags().StringVar(
-		&dsn,
-		"super-user-dsn",
-		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
-		"Super User Data Source Name",
-	)
 
 	cmd.Flags().StringVar(
 		&dbUser,
@@ -310,6 +424,109 @@ func buildAttackDBCmd() *cobra.Command {
 		false,
 		"Drop the database before creating it if exists",
 	)
+
+	return cmd
+}
+
+func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pause_write",
+		Short: "Pause write traffic by revoking and killing access to a given databas in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Revoking the access against '%s' database...", dbName)
+
+			if _, err = conn.Exec(ctx, flare.RevokeConnectionQuery(dbName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Database access against '%s' database has been revoked!", dbName)
+
+			log.Printf("Killing the existing connections against '%s' database...", dbName)
+
+			zeroConnTimes := 0
+
+			// will retry until flare sees 3 times zero connections in a row
+			for zeroConnTimes <= 3 {
+				ret, err := conn.Exec(ctx, flare.KillConnectionQuery, dbName)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if ret.RowsAffected() > 0 {
+					// reset to zero to see whether there are still remaining connections again...
+					zeroConnTimes = 0
+				} else {
+					zeroConnTimes++
+				}
+
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			log.Printf("No connections against '%s' database are detected!", dbName)
+		},
+	}
+
+	return cmd
+}
+
+func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "resume_write",
+		Short: "Resume write traffic by granting access to a given databas in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Revoking the access against '%s' database...", dbName)
+
+			if _, err = conn.Exec(ctx, flare.GrantConnectionQuery(dbName)); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Printf("Database access against '%s' database has been granted!!", dbName)
+		},
+	}
 
 	return cmd
 }
