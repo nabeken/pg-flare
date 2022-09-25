@@ -64,7 +64,6 @@ SELECT system_identifier FROM pg_control_system();
 - Pausing write traffic against the publisher
 - Resuming write traffic in case of emergency
 - Generating write traffic for testing
-  - should generate `INSERT`, `UPDATE` and `DELETE`
 
 ## Example
 
