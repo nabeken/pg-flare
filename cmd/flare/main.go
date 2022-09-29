@@ -294,6 +294,7 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 
 func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 	var onlyDump bool
+	var noPasswords bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_roles",
@@ -304,7 +305,7 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Reading the roles from the publisher...")
 
-			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn)
+			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn, noPasswords)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -335,6 +336,13 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 		"only-dump",
 		false,
 		"Only dump the roles instead of replicating to the subscriber",
+	)
+
+	cmd.Flags().BoolVar(
+		&noPasswords,
+		"no-passwords",
+		false,
+		"Do not dump the passwords",
 	)
 
 	return cmd

@@ -109,9 +109,13 @@ func CreateTestTable(ctx context.Context, connConfig ConnConfig, dbUser string, 
 	return nil
 }
 
-func DumpRoles(connConfig ConnConfig) (string, error) {
+func DumpRoles(connConfig ConnConfig, noPasswords bool) (string, error) {
 	args := connConfig.PSQLArgs()
 	args.Args = []string{"--roles-only"}
+
+	if noPasswords {
+		args.Args = append(args.Args, "--no-role-passwords")
+	}
 
 	return PGDumpAll(args)
 }
