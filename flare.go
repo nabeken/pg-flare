@@ -199,6 +199,9 @@ type ConnConfig struct {
 	User     string `yaml:"user" validate:"required"`
 	Password string `yaml:"password" validate:"required"`
 
+	DumpUser         string `yaml:"dump_user"`
+	DumpUserPassword string `yaml:"dump_user_password"`
+
 	Host              string `yaml:"host" validate:"required"`
 	HostViaSubscriber string `yaml:"host_via_subscriber"`
 

@@ -50,6 +50,8 @@ func TestConfig(t *testing.T) {
 					Port:              "5430",
 					PortViaSubscriber: "5432",
 					SystemIdentifier:  "12345",
+					DumpUser:          "dump",
+					DumpUserPassword:  "dump",
 				},
 			},
 			Subscriber: Host{

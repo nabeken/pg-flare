@@ -238,6 +238,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 	var onlyDump bool
+	var useDumpUser bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_schema [DBNAME]",
@@ -255,6 +256,11 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
 			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
+
+			if useDumpUser {
+				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DumpUser
+				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DumpUserPassword
+			}
 
 			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
 			if err != nil {
@@ -287,6 +293,13 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 		"only-dump",
 		false,
 		"Only dump the schema instead of replicating to the subscriber",
+	)
+
+	cmd.Flags().BoolVar(
+		&useDumpUser,
+		"use-dump-user",
+		false,
+		"Use the dump user to dump the schema",
 	)
 
 	return cmd
