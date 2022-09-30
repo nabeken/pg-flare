@@ -60,6 +60,8 @@ SELECT system_identifier FROM pg_control_system();
 - Replicating schemas from the publisher to the subscriber
 - Installing all of the extensions in the publisher
 - Creating a publisher
+  - "db owner" needs to grant "super user" `CREATE` to create publications
+  - "super user" needs to create a publication (ie. only super user can drop a publication)
 - Creating a subscriber
 - Pausing write traffic against the publisher
 - Resuming write traffic in case of emergency

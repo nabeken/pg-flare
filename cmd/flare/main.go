@@ -259,8 +259,7 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
 
 			if useDBOwner {
-				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DBOwner
-				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DBOwnerPassword
+				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
 			}
 
 			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
@@ -573,8 +572,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
 			if useDBOwner {
-				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DBOwner
-				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DBOwnerPassword
+				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
 			}
 
 			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
@@ -593,8 +591,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			if useDBOwner {
-				cfg.Hosts.Subscriber.Conn.User = cfg.Hosts.Subscriber.Conn.DBOwner
-				cfg.Hosts.Subscriber.Conn.Password = cfg.Hosts.Subscriber.Conn.DBOwnerPassword
+				cfg.Hosts.Subscriber.Conn = withDBOwner(cfg.Hosts.Subscriber.Conn)
 			}
 
 			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, dbName)
@@ -642,4 +639,10 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 	)
 
 	return cmd
+}
+
+func withDBOwner(connInfo flare.ConnConfig) flare.ConnConfig {
+	connInfo.User = connInfo.DBOwner
+	connInfo.Password = connInfo.DBOwnerPassword
+	return connInfo
 }
