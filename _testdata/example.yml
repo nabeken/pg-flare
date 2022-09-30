@@ -8,8 +8,8 @@ hosts:
       port: '5430'
       port_via_subscriber: '5432'
       system_identifier: '12345'
-      dump_user: dump
-      dump_user_password: 'dump'
+      db_owner: owner
+      db_owner_password: 'owner'
   subscriber:
     conn:
       user: postgres2

@@ -77,6 +77,11 @@ SELECT system_identifier FROM pg_control_system();
 ./flare replicate_roles
 ```
 
+**Replicating the installed extensions from the publisher to the subscriber in a given database (ie. `bench` in the example)**:
+```sh
+./flare install_extensions bench
+```
+
 **Replicating the schema in a given database (ie. `bench` in the example)**:
 ```sh
 ./flare replicate_schema bench

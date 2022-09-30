@@ -161,6 +161,10 @@ func GrantConnectionQuery(dbName string) string {
 	)
 }
 
+func CreateExtensionQuery(ext string) string {
+	return fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %s`, quoteIdentifier(ext))
+}
+
 const KillConnectionQuery = `
 	SELECT pg_terminate_backend(pid)
 	FROM pg_stat_activity
@@ -199,8 +203,8 @@ type ConnConfig struct {
 	User     string `yaml:"user" validate:"required"`
 	Password string `yaml:"password" validate:"required"`
 
-	DumpUser         string `yaml:"dump_user"`
-	DumpUserPassword string `yaml:"dump_user_password"`
+	DBOwner         string `yaml:"db_owner"`
+	DBOwnerPassword string `yaml:"db_owner_password"`
 
 	Host              string `yaml:"host" validate:"required"`
 	HostViaSubscriber string `yaml:"host_via_subscriber"`
@@ -429,6 +433,30 @@ func Connect(ctx context.Context, connConfig ConnConfig, dbName string) (*Conn, 
 		connConfig: connConfig,
 		dbName:     dbName,
 	}, nil
+}
+
+func ListInstalledExtensions(ctx context.Context, conn *Conn) ([]string, error) {
+	rows, err := conn.Query(ctx, `SELECT extname FROM pg_extension order by extname;`)
+	if err != nil {
+		return nil, err
+	}
+
+	exts := []string{}
+
+	for rows.Next() {
+		var ext string
+		if err := rows.Scan(&ext); err != nil {
+			return nil, err
+		}
+
+		exts = append(exts, ext)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return exts, nil
 }
 
 func quoteIdentifier(s string) string {

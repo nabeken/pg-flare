@@ -50,6 +50,7 @@ func realmain() error {
 	rootCmd.AddCommand(buildAttackCmd(gflags))
 	rootCmd.AddCommand(buildPauseWriteCmd(gflags))
 	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
+	rootCmd.AddCommand(buildInstallExtensionsCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -238,7 +239,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 	var onlyDump bool
-	var useDumpUser bool
+	var useDBOwner bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_schema [DBNAME]",
@@ -257,9 +258,9 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
 
-			if useDumpUser {
-				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DumpUser
-				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DumpUserPassword
+			if useDBOwner {
+				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DBOwner
+				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DBOwnerPassword
 			}
 
 			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
@@ -296,10 +297,10 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 	)
 
 	cmd.Flags().BoolVar(
-		&useDumpUser,
-		"use-dump-user",
+		&useDBOwner,
+		"use-db-owner",
 		false,
-		"Use the dump user to dump the schema",
+		"Use the db owner to dump the schema",
 	)
 
 	return cmd
@@ -548,6 +549,97 @@ func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Database access against '%s' database has been granted!!", dbName)
 		},
 	}
+
+	return cmd
+}
+
+func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
+	var onlyShow bool
+	var useDBOwner bool
+
+	cmd := &cobra.Command{
+		Use:   "install_extensions [DBNAME]",
+		Short: "Install extensions in the publisher into the subscriber",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name in the config\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if useDBOwner {
+				cfg.Hosts.Publisher.Conn.User = cfg.Hosts.Publisher.Conn.DBOwner
+				cfg.Hosts.Publisher.Conn.Password = cfg.Hosts.Publisher.Conn.DBOwnerPassword
+			}
+
+			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer pconn.Close(ctx)
+
+			// list the installed extensions
+			installedExts, err := flare.ListInstalledExtensions(ctx, pconn)
+			if err != nil {
+				cmd.PrintErrf("Failed to list the installed extensions: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			if useDBOwner {
+				cfg.Hosts.Subscriber.Conn.User = cfg.Hosts.Subscriber.Conn.DBOwner
+				cfg.Hosts.Subscriber.Conn.Password = cfg.Hosts.Subscriber.Conn.DBOwnerPassword
+			}
+
+			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer sconn.Close(ctx)
+
+			for _, ext := range installedExts {
+				if onlyShow {
+					log.Printf(
+						"Extension '%s' is installed in the publisher's %s database. Do not install into the subscriber as per request.", ext, dbName,
+					)
+					continue
+				}
+
+				if _, err := sconn.Exec(ctx, flare.CreateExtensionQuery(ext)); err != nil {
+					cmd.PrintErrf(
+						"Failed to install '%s' extension into the subscriber: %s\n", ext, err.Error(),
+					)
+					os.Exit(1)
+				}
+
+				log.Printf(
+					"Extension '%s' has been installed into the subscriber's %s database", ext, dbName,
+				)
+			}
+		},
+	}
+
+	cmd.Flags().BoolVar(
+		&onlyShow,
+		"only-show",
+		false,
+		"only show the installed extensions",
+	)
+
+	cmd.Flags().BoolVar(
+		&useDBOwner,
+		"use-db-owner",
+		false,
+		"Use the db owner to dump the schema",
+	)
 
 	return cmd
 }
