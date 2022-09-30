@@ -51,6 +51,7 @@ func realmain() error {
 	rootCmd.AddCommand(buildPauseWriteCmd(gflags))
 	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
 	rootCmd.AddCommand(buildInstallExtensionsCmd(gflags))
+	rootCmd.AddCommand(buildGrantCreateCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -636,6 +637,62 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 		"use-db-owner",
 		false,
 		"Use the db owner to dump the schema",
+	)
+
+	return cmd
+}
+
+func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
+	var superUser string
+	var useDBOwner bool
+
+	cmd := &cobra.Command{
+		Use:   "grant_create [DBNAME]",
+		Short: "Grant CREATE in the given database to super-user in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			log.Printf("Granting CREATE ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
+
+			if useDBOwner {
+				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
+			}
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+
+			defer conn.Close(ctx)
+
+			if _, err := conn.Exec(ctx, flare.GrantCreateQuery(dbName, superUser)); err != nil {
+				log.Fatal(err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(
+		&superUser,
+		"super-user",
+		"postgres",
+		"Specify the superuser to be granted",
+	)
+
+	cmd.Flags().BoolVar(
+		&useDBOwner,
+		"use-db-owner",
+		false,
+		"Use the db owner to grant",
 	)
 
 	return cmd

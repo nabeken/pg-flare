@@ -165,6 +165,10 @@ func CreateExtensionQuery(ext string) string {
 	return fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %s`, quoteIdentifier(ext))
 }
 
+func GrantCreateQuery(dbName, user string) string {
+	return fmt.Sprintf(`GRANT CREATE ON DATABASE %s TO %s;`, quoteIdentifier(dbName), quoteIdentifier(user))
+}
+
 const KillConnectionQuery = `
 	SELECT pg_terminate_backend(pid)
 	FROM pg_stat_activity

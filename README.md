@@ -84,6 +84,11 @@ SELECT system_identifier FROM pg_control_system();
 ./flare install_extensions bench
 ```
 
+**Grant `CREATE` in a given database to a super user (postgres) (ie. `bench` in the example)**:
+```sh
+./flare grant_create bench
+```
+
 **Replicating the schema in a given database (ie. `bench` in the example)**:
 ```sh
 ./flare replicate_schema bench
