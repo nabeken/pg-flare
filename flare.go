@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -220,9 +221,11 @@ type ConnConfig struct {
 }
 
 func (c ConnConfig) DSNURI(dbName string) string {
+	up := url.UserPassword(c.User, c.Password)
+
 	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s",
-		c.User, c.Password,
+		"postgres://%s@%s:%s/%s",
+		up.String(),
 		c.Host, c.Port,
 		dbName,
 	)
