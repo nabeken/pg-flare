@@ -211,6 +211,9 @@ type ConnConfig struct {
 	DBOwner         string `yaml:"db_owner"`
 	DBOwnerPassword string `yaml:"db_owner_password"`
 
+	ReplicationUser         string `yaml:"repl_user"`
+	ReplicationUserPassword string `yaml:"repl_user_password"`
+
 	Host              string `yaml:"host" validate:"required"`
 	HostViaSubscriber string `yaml:"host_via_subscriber"`
 
@@ -242,9 +245,11 @@ func (c ConnConfig) DSNURIForSubscriber(dbName string) string {
 		port = sport
 	}
 
+	up := url.UserPassword(c.User, c.Password)
+
 	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s",
-		c.User, c.Password,
+		"postgres://%s@%s:%s/%s",
+		up.String(),
 		host, port,
 		dbName,
 	)

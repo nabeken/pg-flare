@@ -131,6 +131,8 @@ func parseConfigFile(fn string) (flare.Config, error) {
 }
 
 func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
+	var useReplUser bool
+
 	cmd := &cobra.Command{
 		Use:   "create_subscription [SUBNAME]",
 		Short: "Create a subscription in the subscriber",
@@ -152,9 +154,15 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 				os.Exit(1)
 			}
 
+			pubConnForSub := cfg.Hosts.Publisher.Conn
+
+			if useReplUser {
+				pubConnForSub = withReplUser(cfg.Hosts.Publisher.Conn)
+			}
+
 			subQuery := flare.CreateSubscriptionQuery(
 				subName,
-				cfg.Hosts.Publisher.Conn.DSNURIForSubscriber(subCfg.DBName),
+				pubConnForSub.DSNURIForSubscriber(subCfg.DBName),
 				subCfg.PubName,
 			)
 
@@ -179,6 +187,13 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 			log.Print("The subscription has been created")
 		},
 	}
+
+	cmd.Flags().BoolVar(
+		&useReplUser,
+		"use-repl-user",
+		false,
+		"Use the replication user to connect to the publisher",
+	)
 
 	return cmd
 }
@@ -701,5 +716,11 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 func withDBOwner(connInfo flare.ConnConfig) flare.ConnConfig {
 	connInfo.User = connInfo.DBOwner
 	connInfo.Password = connInfo.DBOwnerPassword
+	return connInfo
+}
+
+func withReplUser(connInfo flare.ConnConfig) flare.ConnConfig {
+	connInfo.User = connInfo.ReplicationUser
+	connInfo.Password = connInfo.ReplicationUserPassword
 	return connInfo
 }
