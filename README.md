@@ -20,19 +20,33 @@ Configuration is designed for a single publisher and a subscriber model but allo
 hosts:
   publisher:
       conn:
-        user:
+        superuser:
+        superuser_password:
+
+        db_owner:
+        db_owner_password::
+
+        repl_user:
+        repl_user_password::
+
         host:
         host_via_subscriber: # hostname that can be resolved from the subscriber
-        port: # port that can be accessible from the subscriber
-        password:
+
+        port:
+        port_via_subscriber: # port that can be accessible from the subscriber
+
         system_identifier:
 
   subscriber:
       conn:
-        user:
+        superuser:
+        superuser_password:
+
+        db_owner:
+        db_owner_password::
+
         host:
         port:
-        password:
         system_identifier
 
 publications:
@@ -65,6 +79,7 @@ SELECT system_identifier FROM pg_control_system();
 - Creating a subscriber
 - Pausing write traffic against the publisher
 - Resuming write traffic in case of emergency
+- Checking whether or not WAL has been advanced after all the traffic are paused
 - Generating write traffic for testing
 
 ## Example

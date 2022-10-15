@@ -1,34 +1,47 @@
 hosts:
   publisher:
     conn:
-      user: postgres1
-      password: 'password1'
-      host: publisher
-      host_via_subscriber: publisher_sub
+      superuser: 'postgres1'
+      superuser_password: 'password1'
+
+      db_owner: 'owner'
+      db_owner_password: 'owner'
+
+      repl_user: 'repl'
+      repl_user_password: 'repl'
+
+      host: 'publisher'
+      host_via_subscriber: 'publisher_sub'
+
       port: '5430'
       port_via_subscriber: '5432'
+
       system_identifier: '12345'
-      db_owner: owner
-      db_owner_password: 'owner'
+
   subscriber:
     conn:
-      user: postgres2
-      password: 'password2'
-      host: subscriber
+      superuser: 'postgres2'
+      superuser_password: 'password2'
+
+      db_owner: 'owner'
+      db_owner_password: 'owner'
+
+      host: 'subscriber'
       port: '5431'
+
       system_identifier: '67890'
 
 publications:
   pubtable1:
-    pubname: publication1-name
+    pubname: 'publication1-name'
     replica_identity_full_tables:
-      - full1
-      - full2
+      - 'full1'
+      - 'full2'
   pubtable2:
-    pubname: publication2-name
+    pubname: 'publication2-name'
     replica_identity_full_tables:
-      - full3
-      - full4
+      - 'full3'
+      - 'full4'
 
 subscriptions:
   benchsub1:

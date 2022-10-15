@@ -16,14 +16,22 @@ func TestConfigValidate(t *testing.T) {
 hosts:
   publisher:
     conn:
-      user: postgres1
-      password: 'password1'
-      host: publisher
+      superuser: 'postgres1'
+      superuser_password: 'password1'
+
+      db_owner: 'postgres1'
+      db_owner_password: 'password1'
+
+      host: 'publisher'
       port: '5430'
   subscriber:
     conn:
-      user: postgres2
-      password: 'password2'
+      superuser: 'postgres2'
+      superuser_password: 'password2'
+
+      db_owner: 'postgres1'
+      db_owner_password: 'password1'
+
       host: subscriber
       port: '5431'
       system_identifier: '67890'
@@ -43,21 +51,31 @@ func TestConfig(t *testing.T) {
 		Hosts: Hosts{
 			Publisher: Host{
 				Conn: ConnConfig{
-					User:              "postgres1",
-					Password:          "password1",
+					SuperUser:         "postgres1",
+					SuperUserPassword: "password1",
+
+					DBOwner:         "owner",
+					DBOwnerPassword: "owner",
+
+					ReplicationUser:         "repl",
+					ReplicationUserPassword: "repl",
+
 					Host:              "publisher",
 					HostViaSubscriber: "publisher_sub",
 					Port:              "5430",
 					PortViaSubscriber: "5432",
-					SystemIdentifier:  "12345",
-					DBOwner:           "owner",
-					DBOwnerPassword:   "owner",
+
+					SystemIdentifier: "12345",
 				},
 			},
 			Subscriber: Host{
 				Conn: ConnConfig{
-					User:             "postgres2",
-					Password:         "password2",
+					SuperUser:         "postgres2",
+					SuperUserPassword: "password2",
+
+					DBOwner:         "owner",
+					DBOwnerPassword: "owner",
+
 					Host:             "subscriber",
 					Port:             "5431",
 					SystemIdentifier: "67890",
@@ -95,8 +113,8 @@ func TestConfig(t *testing.T) {
 	cfg, err := ParseConfig(ymlConfig)
 	require.NoError(err)
 	require.Equal(expected, cfg)
-	require.Equal("postgres://postgres1:password1@publisher:5430/", cfg.Hosts.Publisher.Conn.DSNURI(""))
-	require.Equal("postgres://postgres1:password1@publisher_sub:5432/", cfg.Hosts.Publisher.Conn.DSNURIForSubscriber(""))
+	require.Equal("postgres://postgres1:password1@publisher:5430/", cfg.Hosts.Publisher.Conn.SuperUserInfo().DSNURI(""))
+	require.Equal("postgres://postgres1:password1@publisher_sub:5432/", cfg.Hosts.Publisher.Conn.SuperUserInfo().DSNURIForSubscriber(""))
 }
 
 func TestPGDump(t *testing.T) {
@@ -163,17 +181,17 @@ func TestConn(t *testing.T) {
 	require := require.New(t)
 
 	publisher := ConnConfig{
-		User:             "postgres",
-		Password:         "password1",
-		Host:             "localhost",
-		Port:             "5430",
-		SystemIdentifier: "12345",
+		SuperUser:         "postgres",
+		SuperUserPassword: "password1",
+		Host:              "localhost",
+		Port:              "5430",
+		SystemIdentifier:  "12345",
 	}
 
 	ctx := context.TODO()
 
 	t.Run("Ping", func(t *testing.T) {
-		conn, err := Connect(ctx, publisher, "postgres")
+		conn, err := Connect(ctx, publisher.SuperUserInfo(), "postgres")
 		require.NoError(err)
 
 		defer conn.Close(ctx)
@@ -182,7 +200,7 @@ func TestConn(t *testing.T) {
 	})
 
 	t.Run("Verify/Error", func(t *testing.T) {
-		conn, err := Connect(ctx, publisher, "postgres")
+		conn, err := Connect(ctx, publisher.SuperUserInfo(), "postgres")
 		require.NoError(err)
 
 		defer conn.Close(ctx)
@@ -192,7 +210,7 @@ func TestConn(t *testing.T) {
 	})
 
 	t.Run("Verify/Verified", func(t *testing.T) {
-		conn1, err := Connect(ctx, publisher, "postgres")
+		conn1, err := Connect(ctx, publisher.SuperUserInfo(), "postgres")
 		require.NoError(err)
 
 		defer conn1.Close(ctx)
@@ -204,12 +222,12 @@ func TestConn(t *testing.T) {
 		conn2, err := Connect(
 			ctx,
 			ConnConfig{
-				User:             "postgres",
-				Password:         "password1",
-				Host:             "localhost",
-				Port:             "5430",
-				SystemIdentifier: correctIden,
-			},
+				SuperUser:         "postgres",
+				SuperUserPassword: "password1",
+				Host:              "localhost",
+				Port:              "5430",
+				SystemIdentifier:  correctIden,
+			}.SuperUserInfo(),
 			"postgres",
 		)
 		require.NoError(err)

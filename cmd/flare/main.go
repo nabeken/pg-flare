@@ -79,7 +79,7 @@ func buildVerifyConnectivity(gflags *globalFlags) *cobra.Command {
 func verifyConnection(ctx context.Context, cmd *cobra.Command, cfg flare.Config) error {
 	pconn, err := flare.ConnectWithVerify(
 		ctx,
-		cfg.Hosts.Publisher.Conn,
+		cfg.Hosts.Publisher.Conn.SuperUserInfo(),
 		"postgres",
 	)
 	if err != nil {
@@ -89,7 +89,7 @@ func verifyConnection(ctx context.Context, cmd *cobra.Command, cfg flare.Config)
 
 	sconn, err := flare.ConnectWithVerify(
 		ctx,
-		cfg.Hosts.Subscriber.Conn,
+		cfg.Hosts.Subscriber.Conn.SuperUserInfo(),
 		"postgres",
 	)
 	if err != nil {
@@ -154,10 +154,10 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 				os.Exit(1)
 			}
 
-			pubConnForSub := cfg.Hosts.Publisher.Conn
+			pubConnForSub := cfg.Hosts.Publisher.Conn.SuperUserInfo()
 
 			if useReplUser {
-				pubConnForSub = withReplUser(cfg.Hosts.Publisher.Conn)
+				pubConnForSub = cfg.Hosts.Publisher.Conn.ReplicationUserInfo()
 			}
 
 			subQuery := flare.CreateSubscriptionQuery(
@@ -168,7 +168,7 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Creating a subscription...")
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, subCfg.DBName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), subCfg.DBName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
 				os.Exit(1)
@@ -222,7 +222,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
 				func() {
-					dboconn, err := flare.Connect(ctx, withDBOwner(cfg.Hosts.Publisher.Conn), dbName)
+					dboconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 					if err != nil {
 						cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 						os.Exit(1)
@@ -240,7 +240,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Creating a publication in the publisher...")
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -284,11 +284,12 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Printf("Reading the schema of '%s' from the publisher...", dbName)
 
+			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
 			if useDBOwner {
-				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
+				pubConnUserInfo = cfg.Hosts.Publisher.Conn.DBOwnerInfo()
 			}
 
-			schema, err := flare.DumpSchema(cfg.Hosts.Publisher.Conn, dbName)
+			schema, err := flare.DumpSchema(pubConnUserInfo, dbName)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -301,7 +302,7 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Copying the schema to the subscriber...")
 
-			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
+			psqlArgs := cfg.Hosts.Subscriber.Conn.SuperUserInfo().PSQLArgs()
 			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(schema))
 			if err != nil {
 				log.Fatal(err)
@@ -344,7 +345,7 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Reading the roles from the publisher...")
 
-			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn, noPasswords)
+			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn.SuperUserInfo(), noPasswords)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -357,7 +358,7 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Print("Copying the roles to the subscriber...")
 
-			psqlArgs := cfg.Hosts.Subscriber.Conn.PSQLArgs()
+			psqlArgs := cfg.Hosts.Subscriber.Conn.SuperUserInfo().PSQLArgs()
 			result, resultErr, err := flare.PSQL(psqlArgs, "postgres", strings.NewReader(roles))
 			if err != nil {
 				log.Fatal(err)
@@ -397,10 +398,12 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			cfg.Hosts.Publisher.Conn.User = dbUser
-			cfg.Hosts.Publisher.Conn.Password = password
+			pubConnUserInfo := flare.UserInfo{
+				User:     dbUser,
+				Password: password,
+			}.WithHostInfo(cfg.Hosts.Publisher.Conn.GetHostInfo())
 
-			pool, err := pgxpool.Connect(ctx, cfg.Hosts.Publisher.Conn.DSNURI("flare_test"))
+			pool, err := pgxpool.Connect(ctx, pubConnUserInfo.DSNURI("flare_test"))
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to flare_test database: %s\n", err.Error())
 				os.Exit(1)
@@ -449,7 +452,7 @@ func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 
 			if err := flare.CreateTestTable(
 				ctx,
-				cfg.Hosts.Publisher.Conn,
+				cfg.Hosts.Publisher.Conn.SuperUserInfo(),
 				dbUser,
 				dropDBBefore,
 			); err != nil {
@@ -490,7 +493,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -553,7 +556,7 @@ func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -597,11 +600,13 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
+			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
+
 			if useDBOwner {
-				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
+				pubConnUserInfo = cfg.Hosts.Publisher.Conn.DBOwnerInfo()
 			}
 
-			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			pconn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -616,11 +621,13 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 				os.Exit(1)
 			}
 
+			subConnUserInfo := cfg.Hosts.Subscriber.Conn.SuperUserInfo()
+
 			if useDBOwner {
-				cfg.Hosts.Subscriber.Conn = withDBOwner(cfg.Hosts.Subscriber.Conn)
+				subConnUserInfo = cfg.Hosts.Subscriber.Conn.DBOwnerInfo()
 			}
 
-			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn, dbName)
+			sconn, err := flare.Connect(ctx, subConnUserInfo, dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
 				os.Exit(1)
@@ -688,11 +695,13 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Printf("Granting CREATE ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
 
+			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
+
 			if useDBOwner {
-				cfg.Hosts.Publisher.Conn = withDBOwner(cfg.Hosts.Publisher.Conn)
+				pubConnUserInfo = cfg.Hosts.Publisher.Conn.DBOwnerInfo()
 			}
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
+			conn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -721,16 +730,4 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 	)
 
 	return cmd
-}
-
-func withDBOwner(connInfo flare.ConnConfig) flare.ConnConfig {
-	connInfo.User = connInfo.DBOwner
-	connInfo.Password = connInfo.DBOwnerPassword
-	return connInfo
-}
-
-func withReplUser(connInfo flare.ConnConfig) flare.ConnConfig {
-	connInfo.User = connInfo.ReplicationUser
-	connInfo.Password = connInfo.ReplicationUserPassword
-	return connInfo
 }

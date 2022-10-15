@@ -74,8 +74,8 @@ CREATE TABLE IF NOT EXISTS items (
 );
 `
 
-func CreateTestTable(ctx context.Context, connConfig ConnConfig, dbUser string, dropDBBefore bool) error {
-	conn, err := Connect(ctx, connConfig, "postgres")
+func CreateTestTable(ctx context.Context, ui UserInfo, dbUser string, dropDBBefore bool) error {
+	conn, err := Connect(ctx, ui, "postgres")
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func CreateTestTable(ctx context.Context, connConfig ConnConfig, dbUser string, 
 		return fmt.Errorf("creating a database: %w", err)
 	}
 
-	newConn, err := Connect(ctx, connConfig, "flare_test")
+	newConn, err := Connect(ctx, ui, "flare_test")
 	if err != nil {
 		return fmt.Errorf("chaging to the new database: %w", err)
 	}
@@ -110,8 +110,8 @@ func CreateTestTable(ctx context.Context, connConfig ConnConfig, dbUser string, 
 	return nil
 }
 
-func DumpRoles(connConfig ConnConfig, noPasswords bool) (string, error) {
-	args := connConfig.PSQLArgs()
+func DumpRoles(ui UserInfo, noPasswords bool) (string, error) {
+	args := ui.PSQLArgs()
 	args.Args = []string{"--roles-only"}
 
 	if noPasswords {
@@ -121,8 +121,8 @@ func DumpRoles(connConfig ConnConfig, noPasswords bool) (string, error) {
 	return PGDumpAll(args)
 }
 
-func DumpSchema(connConfig ConnConfig, db string) (string, error) {
-	args := connConfig.PSQLArgs()
+func DumpSchema(ui UserInfo, db string) (string, error) {
+	args := ui.PSQLArgs()
 	args.Args = []string{
 		"--schema-only",
 		"--create",
@@ -204,12 +204,75 @@ type Subscription struct {
 	PubName string `yaml:"pubname"`
 }
 
-type ConnConfig struct {
-	User     string `yaml:"user" validate:"required"`
-	Password string `yaml:"password" validate:"required"`
+type HostInfo struct {
+	Host              string
+	HostViaSubscriber string
 
-	DBOwner         string `yaml:"db_owner"`
-	DBOwnerPassword string `yaml:"db_owner_password"`
+	Port              string
+	PortViaSubscriber string
+
+	SystemIdentifier string
+}
+
+type UserInfo struct {
+	User     string
+	Password string
+
+	hi HostInfo
+}
+
+func (ui UserInfo) WithHostInfo(hi HostInfo) UserInfo {
+	ui.hi = hi
+	return ui
+}
+
+func (ui UserInfo) DSNURI(dbName string) string {
+	up := url.UserPassword(ui.User, ui.Password)
+
+	return fmt.Sprintf(
+		"postgres://%s@%s:%s/%s",
+		up.String(),
+		ui.hi.Host, ui.hi.Port,
+		dbName,
+	)
+}
+
+func (ui UserInfo) DSNURIForSubscriber(dbName string) string {
+	host := ui.hi.Host
+	if shost := ui.hi.HostViaSubscriber; shost != "" {
+		host = shost
+	}
+
+	port := ui.hi.Port
+	if sport := ui.hi.PortViaSubscriber; sport != "" {
+		port = sport
+	}
+
+	up := url.UserPassword(ui.User, ui.Password)
+
+	return fmt.Sprintf(
+		"postgres://%s@%s:%s/%s",
+		up.String(),
+		host, port,
+		dbName,
+	)
+}
+
+func (ui UserInfo) PSQLArgs() PSQLArgs {
+	return PSQLArgs{
+		User: ui.User,
+		Pass: ui.Password,
+		Host: ui.hi.Host,
+		Port: ui.hi.Port,
+	}
+}
+
+type ConnConfig struct {
+	SuperUser         string `yaml:"superuser" validate:"required"`
+	SuperUserPassword string `yaml:"superuser_password" validate:"required"`
+
+	DBOwner         string `yaml:"db_owner" validate:"required"`
+	DBOwnerPassword string `yaml:"db_owner_password" validate:"required"`
 
 	ReplicationUser         string `yaml:"repl_user"`
 	ReplicationUserPassword string `yaml:"repl_user_password"`
@@ -223,44 +286,42 @@ type ConnConfig struct {
 	SystemIdentifier string `yaml:"system_identifier" validate:"required"`
 }
 
-func (c ConnConfig) DSNURI(dbName string) string {
-	up := url.UserPassword(c.User, c.Password)
+func (c ConnConfig) GetHostInfo() HostInfo {
+	return HostInfo{
+		Host:              c.Host,
+		HostViaSubscriber: c.HostViaSubscriber,
 
-	return fmt.Sprintf(
-		"postgres://%s@%s:%s/%s",
-		up.String(),
-		c.Host, c.Port,
-		dbName,
-	)
+		Port:              c.Port,
+		PortViaSubscriber: c.PortViaSubscriber,
+
+		SystemIdentifier: c.SystemIdentifier,
+	}
 }
 
-func (c ConnConfig) DSNURIForSubscriber(dbName string) string {
-	host := c.Host
-	if shost := c.HostViaSubscriber; shost != "" {
-		host = shost
+func (c ConnConfig) SuperUserInfo() UserInfo {
+	return UserInfo{
+		User:     c.SuperUser,
+		Password: c.SuperUserPassword,
+
+		hi: c.GetHostInfo(),
 	}
-
-	port := c.Port
-	if sport := c.PortViaSubscriber; sport != "" {
-		port = sport
-	}
-
-	up := url.UserPassword(c.User, c.Password)
-
-	return fmt.Sprintf(
-		"postgres://%s@%s:%s/%s",
-		up.String(),
-		host, port,
-		dbName,
-	)
 }
 
-func (c ConnConfig) PSQLArgs() PSQLArgs {
-	return PSQLArgs{
-		User: c.User,
-		Pass: c.Password,
-		Host: c.Host,
-		Port: c.Port,
+func (c ConnConfig) DBOwnerInfo() UserInfo {
+	return UserInfo{
+		User:     c.DBOwner,
+		Password: c.DBOwnerPassword,
+
+		hi: c.GetHostInfo(),
+	}
+}
+
+func (c ConnConfig) ReplicationUserInfo() UserInfo {
+	return UserInfo{
+		User:     c.ReplicationUser,
+		Password: c.ReplicationUserPassword,
+
+		hi: c.GetHostInfo(),
 	}
 }
 
@@ -374,8 +435,8 @@ func PGDumpAll(args PSQLArgs) (string, error) {
 type Conn struct {
 	*pgx.Conn
 
-	connConfig ConnConfig
-	dbName     string
+	userInfo UserInfo
+	dbName   string
 }
 
 type SystemIdentifierError struct {
@@ -409,9 +470,9 @@ func (c *Conn) VerifySystemIdentifier(ctx context.Context) error {
 		return err
 	}
 
-	if c.connConfig.SystemIdentifier != identifierStr {
+	if c.userInfo.hi.SystemIdentifier != identifierStr {
 		return SystemIdentifierError{
-			Expected: c.connConfig.SystemIdentifier,
+			Expected: c.userInfo.hi.SystemIdentifier,
 			Got:      identifierStr,
 		}
 	}
@@ -419,8 +480,8 @@ func (c *Conn) VerifySystemIdentifier(ctx context.Context) error {
 	return nil
 }
 
-func ConnectWithVerify(ctx context.Context, connConfig ConnConfig, dbName string) (*Conn, error) {
-	fconn, err := Connect(ctx, connConfig, dbName)
+func ConnectWithVerify(ctx context.Context, ui UserInfo, dbName string) (*Conn, error) {
+	fconn, err := Connect(ctx, ui, dbName)
 	if err != nil {
 		return nil, err
 	}
@@ -434,16 +495,17 @@ func ConnectWithVerify(ctx context.Context, connConfig ConnConfig, dbName string
 	return fconn, nil
 }
 
-func Connect(ctx context.Context, connConfig ConnConfig, dbName string) (*Conn, error) {
-	conn, err := pgx.Connect(ctx, connConfig.DSNURI(dbName))
+func Connect(ctx context.Context, ui UserInfo, dbName string) (*Conn, error) {
+	conn, err := pgx.Connect(ctx, ui.DSNURI(dbName))
 	if err != nil {
 		return nil, err
 	}
 
 	return &Conn{
-		Conn:       conn,
-		connConfig: connConfig,
-		dbName:     dbName,
+		Conn: conn,
+
+		userInfo: ui,
+		dbName:   dbName,
 	}, nil
 }
 
