@@ -220,6 +220,24 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 				os.Exit(1)
 			}
 
+			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
+				func() {
+					dboconn, err := flare.Connect(ctx, withDBOwner(cfg.Hosts.Publisher.Conn), dbName)
+					if err != nil {
+						cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+						os.Exit(1)
+					}
+
+					defer dboconn.Close(ctx)
+
+					log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
+
+					if _, err = dboconn.Exec(ctx, flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
+						log.Fatalf("Failed to set the replica identity full: %s", err.Error())
+					}
+				}()
+			}
+
 			log.Print("Creating a publication in the publisher...")
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn, dbName)
@@ -232,14 +250,6 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			if err := conn.Ping(ctx); err != nil {
 				log.Fatal(err)
-			}
-
-			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
-				log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
-
-				if _, err = conn.Exec(ctx, flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
-					log.Fatal(err)
-				}
 			}
 
 			if _, err = conn.Exec(ctx, flare.CreatePublicationQuery(pubCfg.PubName)); err != nil {
