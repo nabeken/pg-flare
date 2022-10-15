@@ -335,6 +335,7 @@ func buildReplicateSchemaCmd(gflags *globalFlags) *cobra.Command {
 func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 	var onlyDump bool
 	var noPasswords bool
+	var stripRoleOptionsForRDS bool
 
 	cmd := &cobra.Command{
 		Use:   "replicate_roles",
@@ -348,6 +349,13 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 			roles, err := flare.DumpRoles(cfg.Hosts.Publisher.Conn.SuperUserInfo(), noPasswords)
 			if err != nil {
 				log.Fatal(err)
+			}
+
+			if stripRoleOptionsForRDS {
+				roles, err = flare.StripRoleOptionsForRDS(roles)
+				if err != nil {
+					log.Fatalf("Failed to strip options: %s", err)
+				}
 			}
 
 			if onlyDump {
@@ -383,6 +391,13 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 		"no-passwords",
 		false,
 		"Do not dump the passwords",
+	)
+
+	cmd.Flags().BoolVar(
+		&stripRoleOptionsForRDS,
+		"strip-options-for-rds",
+		false,
+		"Strip role options for RDS",
 	)
 
 	return cmd

@@ -137,3 +137,130 @@ SELECT system_identifier FROM pg_control_system();
 ```sh
 ./flare resume_write bench
 ```
+
+## Test Scenario with Amazon RDS
+
+**Launch the entire stack with terraform**:
+```
+module "rds_test" {
+  source  = "github.com/nabeken/study-pg10-logical-replication//tf"
+
+  project_name = "study-rds"
+
+  availability_zones = [
+    "ap-northeast-1a", # apne1-az4
+    "ap-northeast-1c", # apne1-az1
+    "ap-northeast-1d", # apne1-az2
+  ]
+}
+```
+
+**Setup SSH keys in the bastion**:
+- Go to the AWS Management Console
+- Connect to the bastion via Session Manager
+- Run the following commands
+
+  ```sh
+  sudo su - ec2-user
+  curl https://github.com/<yourname>.keys >> .ssh/authorized_keys
+  ```
+
+**Connect to the publisher and the subscriber via the bastion with SSH local port-forwarding over SSM Session Manager**:
+```sh
+ssh ec2-user@i-<instance-id> \
+  -L15432:<publisher>.rds.amazonaws.com:5432 \
+  -L35432:<subscriber>.rds.amazonaws.com:5432
+```
+
+Make sure you can connec to the RDS instances from your local. The password can be found in the terraform module.
+```sh
+psql -U postgres -h 127.0.0.1 -p 15432 postgres
+postgres=> select version();
+                                                 version
+----------------------------------------------------------------------------------------------------------
+ PostgreSQL 10.21 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 7.3.1 20180712 (Red Hat 7.3.1-12), 64-bit
+(1 row)
+
+psql -U postgres -h 127.0.0.1 -p 35432 postgres
+postgres=> select version();
+                                                 version
+---------------------------------------------------------------------------------------------------------
+ PostgreSQL 14.4 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 7.3.1 20180712 (Red Hat 7.3.1-12), 64-bit
+(1 row)
+```
+
+**Create roles**:
+- the database owner user ("dbowner"):
+
+  ```sh
+  createuser -U postgres -h 127.0.0.1 -p15432 --login --no-createrole --no-superuser --createdb --pwprompt dbowner
+  ```
+
+- the replication user ("repl"):
+
+  ```
+  createuser -U postgres -h 127.0.0.1 -p15432 --login --no-createrole --no-superuser --no-createdb --pwprompt repl
+  ```
+
+**Create a config**:
+```
+hosts:
+  publisher:
+    conn:
+      superuser: 'postgres'
+      superuser_password: '<PASSWORD>'
+
+      db_owner: 'dbowner'
+      db_owner_password: 'dbowner'
+
+      repl_user: 'repl'
+      repl_user_password: 'repl'
+
+      host: '127.0.0.1'
+      host_via_subscriber: '<publisher>.rds.amazonaws.com'
+
+      port: '15432'
+      port_via_subscriber: '5432'
+
+      system_identifier: '<identifier>'
+  subscriber:
+    conn:
+      superuser: 'postgres'
+      superuser_password: '<PASSWORD>'
+
+      db_owner: 'dbowner'
+      db_owner_password: 'dbadmin'
+
+      host: 127.0.0.1
+      port: '35432'
+
+      system_identifier: '<identifier>'
+
+publications:
+  bench:
+    pubname: bench-pub
+    replica_identity_full_tables:
+      - pgbench_history
+
+subscriptions:
+  bench1:
+    dbname: bench
+    pubname: bench-pub
+```
+
+**Verify the connectivity**:
+```sh
+./flare --config rds_test.yml verify_connectivity
+```
+
+**Create a database for pgbench**:
+```sh
+createdb -U dbowner -h 127.0.0.1 -p 15432 bench
+pgbench -U dbowner -h 127.0.0.1 -p 15432 -i -s 1 -q bench
+```
+
+**Replicating the roles from the publisher to the subscriber**:
+```sh
+# RDS doesn't allow to dump the password
+./flare --config rds_test.yml replicate_roles --no-passwords --strip-options-for-rds
+```

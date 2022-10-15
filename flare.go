@@ -1,6 +1,7 @@
 package flare
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -108,6 +109,33 @@ func CreateTestTable(ctx context.Context, ui UserInfo, dbUser string, dropDBBefo
 	}
 
 	return nil
+}
+
+func StripRoleOptionsForRDS(roles string) (string, error) {
+	rr := strings.NewReplacer(
+		" NOSUPERUSER", "",
+		" NOREPLICATION", "",
+		//" NOBYPASSRLS", "",
+	)
+
+	r := strings.NewReader(roles)
+	scanner := bufio.NewScanner(r)
+
+	var b strings.Builder
+
+	for scanner.Scan() {
+		t := scanner.Text()
+		if strings.HasPrefix(t, "ALTER ROLE") {
+			t = rr.Replace(t)
+		}
+		fmt.Fprintf(&b, "%s\n", t)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scanning the roles: %w", err)
+	}
+
+	return b.String(), nil
 }
 
 func DumpRoles(ui UserInfo, noPasswords bool) (string, error) {

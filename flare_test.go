@@ -239,6 +239,25 @@ func TestConn(t *testing.T) {
 	})
 }
 
+func TestStripRoleOptionsForRDS(t *testing.T) {
+	input := `CREATE ROLE app;
+ALTER ROLE app WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB LOGIN NOREPLICATION NOBYPASSRLS;
+CREATE ROLE dbowner;
+ALTER ROLE dbowner WITH NOSUPERUSER INHERIT NOCREATEROLE CREATEDB LOGIN NOREPLICATION NOBYPASSRLS;
+`
+	expected := `CREATE ROLE app;
+ALTER ROLE app WITH INHERIT NOCREATEROLE NOCREATEDB LOGIN NOBYPASSRLS;
+CREATE ROLE dbowner;
+ALTER ROLE dbowner WITH INHERIT NOCREATEROLE CREATEDB LOGIN NOBYPASSRLS;
+`
+
+	require := require.New(t)
+
+	actual, err := StripRoleOptionsForRDS(input)
+	require.NoError(err)
+	require.Equal(expected, actual)
+}
+
 func mustReadTestData(fn string) []byte {
 	b, err := os.ReadFile(filepath.Join("_testdata", fn))
 	if err != nil {
