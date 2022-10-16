@@ -253,7 +253,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			if _, err = conn.Exec(ctx, flare.CreatePublicationQuery(pubCfg.PubName)); err != nil {
-				log.Fatal(err)
+				log.Fatalf("Failed to create a publication: %s", err.Error())
 			}
 
 			log.Print("Publisher in the source has been created")
