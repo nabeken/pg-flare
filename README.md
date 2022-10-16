@@ -199,8 +199,15 @@ postgres=> select version();
 - the replication user ("repl"):
 
   ```
+  # create a role
   createuser -U postgres -h 127.0.0.1 -p15432 --login --no-createrole --no-superuser --no-createdb --pwprompt repl
+
+  # assing to `rds_replication` role
+  cat <<EOF | psql -U postgres -h 127.0.0.1 -p15432 postgres
+  GRANT rds_replication TO repl;
+  EOF
   ```
+
 
 **Create a config**:
 ```
@@ -259,8 +266,47 @@ createdb -U dbowner -h 127.0.0.1 -p 15432 bench
 pgbench -U dbowner -h 127.0.0.1 -p 15432 -i -s 1 -q bench
 ```
 
-**Replicating the roles from the publisher to the subscriber**:
+**Install some extensions to demonstrate the command**:
+```sh
+cat <<EOF | psql -U postgres -h 127.0.0.1 -p 15432 bench
+CREATE EXTENSION pgcrypto;
+EOF
+```
+
+**Replicate the roles from the publisher to the subscriber**:
 ```sh
 # RDS doesn't allow to dump the password
 ./flare --config rds_test.yml replicate_roles --no-passwords --strip-options-for-rds
+```
+
+**Set the password manually in the subscriber**:
+```sh
+psql -U postgres -h 127.0.0.1 -p 35432 postgres
+
+\password dbowner
+```
+
+**Replicate the schema from the publisher to the subscriber**:
+```sh
+./flare --config rds_test.yml replicate_schema --use-db-owner bench
+```
+
+**Replicate the installed extensions to the subscriber**:
+```sh
+./flare --config rds_test.yml install_extensions bench
+```
+
+**Grant the superuser CREATE to a given database if the RDS is running PostgreSQL 10**:
+```sh
+./flare --config rds_test.yml grant_create --use-db-owner bench
+```
+
+**Create a publication in the publisher for a given database (ie. `bench` in the example)**:
+```sh
+./flare --config rds_test.yml create_publication bench
+```
+
+**Create a subscription in the subscriber for a given database (ie. `bench` in the example)**:
+```sh
+./flare --config rds_test.yml create_subscription --use-repl-user bench
 ```
