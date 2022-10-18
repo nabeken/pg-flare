@@ -203,8 +203,8 @@ const KillConnectionQuery = `
 	FROM pg_stat_activity
 	WHERE
 		  pid <> pg_backend_pid()
-	  AND usename <> 'postgres' -- skip replication slots
-	  AND datname = $1
+	  AND usename = $1 -- only kill the application session
+	  AND datname = $2
 	;`
 
 type Config struct {

@@ -494,6 +494,8 @@ func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 }
 
 func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
+	var appUser string
+
 	cmd := &cobra.Command{
 		Use:   "pause_write",
 		Short: "Pause write traffic by revoking and killing access to a given databas in the publisher",
@@ -508,7 +510,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
@@ -520,7 +522,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 				log.Fatal(err)
 			}
 
-			log.Printf("Revoking the access against '%s' database...", dbName)
+			log.Printf("Revoking the access against '%s' database from PUBLIC...", dbName)
 
 			if _, err = conn.Exec(ctx, flare.RevokeConnectionQuery(dbName)); err != nil {
 				log.Fatal(err)
@@ -529,17 +531,30 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Database access against '%s' database has been revoked!", dbName)
 
 			log.Printf("Killing the existing connections against '%s' database...", dbName)
+			suconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			if err != nil {
+				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
+				os.Exit(1)
+			}
+			defer suconn.Close(ctx)
 
 			zeroConnTimes := 0
 
 			// will retry until flare sees 3 times zero connections in a row
 			for zeroConnTimes <= 3 {
-				ret, err := conn.Exec(ctx, flare.KillConnectionQuery, dbName)
+				ret, err := suconn.Exec(
+					ctx,
+					flare.KillConnectionQuery,
+					appUser,
+					dbName,
+				)
 				if err != nil {
 					log.Fatal(err)
 				}
 
 				if ret.RowsAffected() > 0 {
+					log.Printf("%d connections got killed", ret.RowsAffected())
+
 					// reset to zero to see whether there are still remaining connections again...
 					zeroConnTimes = 0
 				} else {
@@ -552,6 +567,14 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("No connections against '%s' database are detected!", dbName)
 		},
 	}
+
+	cmd.Flags().StringVar(
+		&appUser,
+		"app-user",
+		"postgres",
+		"Specify an application to be paused",
+	)
+	cmd.MarkFlagRequired("app-user")
 
 	return cmd
 }
@@ -571,7 +594,7 @@ func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
 				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
 				os.Exit(1)
