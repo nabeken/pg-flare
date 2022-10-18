@@ -537,6 +537,32 @@ func Connect(ctx context.Context, ui UserInfo, dbName string) (*Conn, error) {
 	}, nil
 }
 
+func GetCurrentLSN(ctx context.Context, conn *Conn) (string, error) {
+	var currentLSN string
+	if err := conn.QueryRow(ctx, `SELECT pg_current_wal_lsn()::text`).Scan(&currentLSN); err != nil {
+		return "", fmt.Errorf("scanning pg_current_wal_lsn: %w", err)
+	}
+
+	return currentLSN, nil
+}
+
+func GetReceivedLSN(ctx context.Context, conn *Conn, pubCurrentLSN string) (string, bool, error) {
+	var (
+		receivedLSN string
+		followed    bool
+	)
+
+	if err := conn.QueryRow(
+		ctx,
+		`SELECT received_lsn::text, received_lsn >= $1::pg_lsn FROM pg_stat_subscription;`,
+		pubCurrentLSN,
+	).Scan(&receivedLSN, &followed); err != nil {
+		return "", false, fmt.Errorf("scanning received_lsn: %w", err)
+	}
+
+	return receivedLSN, followed, nil
+}
+
 func ListInstalledExtensions(ctx context.Context, conn *Conn) ([]string, error) {
 	rows, err := conn.Query(ctx, `SELECT extname FROM pg_extension order by extname;`)
 	if err != nil {

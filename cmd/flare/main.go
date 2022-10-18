@@ -533,8 +533,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Killing the existing connections against '%s' database...", dbName)
 			suconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Printf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 			defer suconn.Close(ctx)
 
@@ -565,6 +564,38 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			log.Printf("No connections against '%s' database are detected!", dbName)
+
+			// check the current LSN in the publisher
+			currentLSN, err := flare.GetCurrentLSN(ctx, suconn)
+			if err != nil {
+				log.Printf("Failed to get the current LSN from the publisher: %s\n", err.Error())
+			}
+
+			log.Printf("Current LSN in the publisher is '%s'", currentLSN)
+
+			subconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
+			if err != nil {
+				log.Printf("Failed to connect to the subscriber: %s\n", err.Error())
+			}
+			defer subconn.Close(ctx)
+
+			for {
+				log.Print("Checking whether the subscriber consumes WAL after the application traffic is suspended...")
+
+				receivedLSN, followed, err := flare.GetReceivedLSN(ctx, subconn, currentLSN)
+				if err != nil {
+					log.Fatalf("Failed to get received_lsn from the subscriber: %s", err.Error())
+				}
+
+				if followed {
+					log.Printf("The subscriber has consumed WAL (%s) after the traffic is suspended (%s). Good to switch to the subscriber now.", receivedLSN, currentLSN)
+					break
+				}
+
+				log.Printf("The subscriber doesn't seem to consume WAL (%s) so waiting for it...", currentLSN)
+
+				time.Sleep(100 * time.Millisecond)
+			}
 		},
 	}
 
