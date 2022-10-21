@@ -12,10 +12,12 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
+	"github.com/jackc/pgtype/zeronull"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
@@ -585,6 +587,64 @@ func ListInstalledExtensions(ctx context.Context, conn *Conn) ([]string, error) 
 	}
 
 	return exts, nil
+}
+
+type DatabaseConn struct {
+	DatabaseName    string
+	PID             string
+	UserName        zeronull.Text
+	ApplicationName string
+	ClientAddr      zeronull.Text
+	BackendStart    time.Time
+
+	WaitEvent     zeronull.Text
+	WaitEventType zeronull.Text
+
+	State zeronull.Text
+}
+
+func ListConnectionByDatabase(ctx context.Context, conn *Conn, dbName string) ([]DatabaseConn, error) {
+	rows, err := conn.Query(ctx, `
+		SELECT datname, pid::text, usename, application_name, client_addr::text, backend_start, wait_event, wait_event_type, state
+		FROM pg_stat_activity
+		WHERE datname = $1
+		ORDER BY backend_start DESC
+		;`, dbName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying the database conns: %w", err)
+	}
+
+	var dconns []DatabaseConn
+
+	for rows.Next() {
+		var dc DatabaseConn
+		if err := rows.Scan(
+			&dc.DatabaseName,
+			&dc.PID,
+
+			&dc.UserName,
+
+			&dc.ApplicationName,
+			&dc.ClientAddr,
+			&dc.BackendStart,
+
+			&dc.WaitEvent,
+			&dc.WaitEventType,
+
+			&dc.State,
+		); err != nil {
+			return nil, fmt.Errorf("scanning the database conn: %w", err)
+		}
+
+		dconns = append(dconns, dc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scanning the database conns: %w", err)
+	}
+
+	return dconns, nil
 }
 
 func quoteIdentifier(s string) string {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v4/pgxpool"
 	flare "github.com/nabeken/pg-flare"
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,7 @@ func realmain() error {
 	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
 	rootCmd.AddCommand(buildInstallExtensionsCmd(gflags))
 	rootCmd.AddCommand(buildGrantCreateCmd(gflags))
+	rootCmd.AddCommand(buildMonitorConnections(gflags))
 
 	return rootCmd.Execute()
 }
@@ -797,6 +799,100 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 		false,
 		"Use the db owner to grant",
 	)
+
+	return cmd
+}
+
+func sRenderDatabaseConnsTable(conn *flare.Conn, dbName string) (string, error) {
+	thdr := []string{
+		"Database Name", "PID", "User Name", "ApplicationName", "Client Addr", "BackendStart", "WaitEvent", "WaitEventType", "State",
+	}
+
+	var row [][]string
+	row = append(row, thdr)
+
+	dconns, err := flare.ListConnectionByDatabase(context.Background(), conn, dbName)
+	if err != nil {
+		return "", err
+	}
+
+	for _, dconn := range dconns {
+		row = append(row, []string{
+			dconn.DatabaseName,
+			dconn.PID,
+			string(dconn.UserName),
+			dconn.ApplicationName,
+			string(dconn.ClientAddr),
+			dconn.BackendStart.String(),
+			string(dconn.WaitEvent),
+			string(dconn.WaitEventType),
+			string(dconn.State),
+		})
+	}
+
+	tbl, _ := pterm.DefaultTable.WithHasHeader().WithData(row).Srender()
+
+	return tbl, nil
+}
+
+func buildMonitorConnections(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "monitor_connections [DBNAME]",
+		Short: "Monitor database connections for a given database",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s", err.Error())
+			}
+			defer pconn.Close(ctx)
+
+			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s", err.Error())
+			}
+			defer sconn.Close(ctx)
+
+			area, _ := pterm.DefaultArea.WithFullscreen().Start()
+
+			for {
+				content := fmt.Sprintf(
+					"Time: %s\n\n", time.Now().Format("2006-01-02T15:04:05 -07:00:00"),
+				)
+
+				ptbl, err := sRenderDatabaseConnsTable(pconn, dbName)
+				if err != nil {
+					log.Fatalf("Failed to query the connections: %s", err.Error())
+				}
+
+				stbl, err := sRenderDatabaseConnsTable(sconn, dbName)
+				if err != nil {
+					log.Fatalf("Failed to query the connections: %s", err.Error())
+				}
+
+				area.Update(
+					fmt.Sprintf(
+						"%s\nPublisher:\n%s\n\nSubscriber:\n%s",
+						content, ptbl, stbl,
+					),
+				)
+
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			area.Stop()
+		},
+	}
 
 	return cmd
 }
