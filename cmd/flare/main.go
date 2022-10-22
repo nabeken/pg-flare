@@ -43,17 +43,28 @@ func realmain() error {
 	)
 
 	rootCmd.AddCommand(buildVerifyConnectivity(gflags))
+
 	rootCmd.AddCommand(buildReplicateRolesCmd(gflags))
 	rootCmd.AddCommand(buildReplicateSchemaCmd(gflags))
+
 	rootCmd.AddCommand(buildCreatePublicationCmd(gflags))
 	rootCmd.AddCommand(buildCreateSubscriptionCmd(gflags))
+
 	rootCmd.AddCommand(buildCreateAttackDBCmd(gflags))
 	rootCmd.AddCommand(buildAttackCmd(gflags))
+
 	rootCmd.AddCommand(buildPauseWriteCmd(gflags))
 	rootCmd.AddCommand(buildResumeWriteCmd(gflags))
+
 	rootCmd.AddCommand(buildInstallExtensionsCmd(gflags))
+
 	rootCmd.AddCommand(buildGrantCreateCmd(gflags))
-	rootCmd.AddCommand(buildMonitorConnections(gflags))
+	rootCmd.AddCommand(buildGrantReplicationCmd(gflags))
+
+	rootCmd.AddCommand(buildMonitor(gflags))
+
+	//rootCmd.AddCommand(buildDropPublicationCmd(gflags))
+	rootCmd.AddCommand(buildDropSubscriptionCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -106,8 +117,7 @@ func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn s
 	cfg := readConfigFileOrExit(cmd, fn)
 
 	if err := verifyConnection(ctx, cmd, cfg); err != nil {
-		cmd.PrintErrf("Failed to verify the connection: %s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("Failed to verify the connection: %s\n", err.Error())
 	}
 
 	return cfg
@@ -116,8 +126,7 @@ func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn s
 func readConfigFileOrExit(cmd *cobra.Command, fn string) flare.Config {
 	cfg, err := parseConfigFile(fn)
 	if err != nil {
-		cmd.PrintErrf("Failed to parse the configuration: %s\n", err.Error())
-		os.Exit(1)
+		log.Fatalf("Failed to parse the configuration: %s\n", err.Error())
 	}
 
 	return cfg
@@ -152,8 +161,7 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 
 			subCfg, ok := cfg.Subscriptions[subName]
 			if !ok {
-				cmd.PrintErrf("Subscription '%s' is not found in the config\n", subName)
-				os.Exit(1)
+				log.Fatalf("Subscription '%s' is not found in the config\n", subName)
 			}
 
 			pubConnForSub := cfg.Hosts.Publisher.Conn.SuperUserInfo()
@@ -172,8 +180,7 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), subCfg.DBName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
 			}
 
 			defer conn.Close(ctx)
@@ -218,16 +225,14 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			pubCfg, ok := cfg.Publications[dbName]
 			if !ok {
-				cmd.PrintErrf("Database '%s' is not found in the config\n", dbName)
-				os.Exit(1)
+				log.Fatalf("Database '%s' is not found in the config\n", dbName)
 			}
 
 			for _, tbl := range pubCfg.ReplicaIdentityFullTables {
 				func() {
 					dboconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 					if err != nil {
-						cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-						os.Exit(1)
+						log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 					}
 
 					defer dboconn.Close(ctx)
@@ -244,8 +249,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 
 			defer conn.Close(ctx)
@@ -422,8 +426,7 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 
 			pool, err := pgxpool.Connect(ctx, pubConnUserInfo.DSNURI("flare_test"))
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to flare_test database: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to flare_test database: %s\n", err.Error())
 			}
 
 			gen := flare.NewTrafficGenerator(pool)
@@ -514,8 +517,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 
 			defer conn.Close(ctx)
@@ -629,8 +631,7 @@ func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 
 			defer conn.Close(ctx)
@@ -679,8 +680,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 
 			pconn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 
 			defer pconn.Close(ctx)
@@ -688,8 +688,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 			// list the installed extensions
 			installedExts, err := flare.ListInstalledExtensions(ctx, pconn)
 			if err != nil {
-				cmd.PrintErrf("Failed to list the installed extensions: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to list the installed extensions: %s\n", err.Error())
 			}
 
 			subConnUserInfo := cfg.Hosts.Subscriber.Conn.SuperUserInfo()
@@ -700,8 +699,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 
 			sconn, err := flare.Connect(ctx, subConnUserInfo, dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the subscriber: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
 			}
 
 			defer sconn.Close(ctx)
@@ -715,10 +713,9 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 				}
 
 				if _, err := sconn.Exec(ctx, flare.CreateExtensionQuery(ext)); err != nil {
-					cmd.PrintErrf(
+					log.Fatalf(
 						"Failed to install '%s' extension into the subscriber: %s\n", ext, err.Error(),
 					)
-					os.Exit(1)
 				}
 
 				log.Printf(
@@ -746,7 +743,6 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 }
 
 func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
-	var superUser string
 	var useDBOwner bool
 
 	cmd := &cobra.Command{
@@ -764,6 +760,8 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
+			superUser := cfg.Hosts.Publisher.Conn.SuperUserInfo().User
+
 			log.Printf("Granting CREATE ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
 
 			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
@@ -774,8 +772,7 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
-				cmd.PrintErrf("Failed to connect to the publisher: %s\n", err.Error())
-				os.Exit(1)
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 
 			defer conn.Close(ctx)
@@ -786,12 +783,62 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(
-		&superUser,
-		"super-user",
-		"postgres",
-		"Specify the superuser to be granted",
+	cmd.Flags().BoolVar(
+		&useDBOwner,
+		"use-db-owner",
+		false,
+		"Use the db owner to grant",
 	)
+
+	return cmd
+}
+
+func buildGrantReplicationCmd(gflags *globalFlags) *cobra.Command {
+	var useDBOwner bool
+
+	cmd := &cobra.Command{
+		Use:   "grant_replication [DBNAME]",
+		Short: "Grant the replication user all privileges on a given database in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			replUser := cfg.Hosts.Publisher.Conn.ReplicationUserInfo().User
+
+			log.Printf("Granting all privileges on '%s' to '%s' in the publisher...", dbName, replUser)
+
+			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
+
+			if useDBOwner {
+				pubConnUserInfo = cfg.Hosts.Publisher.Conn.DBOwnerInfo()
+			}
+
+			conn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+			}
+
+			defer conn.Close(ctx)
+
+			if _, err := conn.Exec(ctx, flare.GrantAllOnDatabaseQuery(dbName, replUser)); err != nil {
+				log.Fatalf("Failed to grant on the database: %s", err.Error())
+			}
+
+			if _, err := conn.Exec(ctx, flare.GrantAllOnAllTablesQuery(replUser)); err != nil {
+				log.Fatalf("Failed to grant on all the tables: %s", err.Error())
+			}
+
+			log.Printf("'%s' has been granted for '%s'!", replUser, dbName)
+		},
+	}
 
 	cmd.Flags().BoolVar(
 		&useDBOwner,
@@ -801,6 +848,69 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 	)
 
 	return cmd
+}
+func sRenderSubscriptionStats(conn *flare.Conn, subName string) (string, error) {
+	thdr := []string{
+		"SubID", "Sub Name", "PID", "Received LSN", "Last Msg Send Time", "Last Msg Receipt Time", "Latest End LSN", "Latest End Time",
+	}
+
+	var row [][]string
+	row = append(row, thdr)
+
+	stats, err := flare.ListSubscriptionStatByName(context.Background(), conn, subName)
+	if err != nil {
+		return "", err
+	}
+
+	for _, stat := range stats {
+		row = append(row, []string{
+			stat.SubID,
+			stat.SubName,
+			stat.PID,
+
+			string(stat.ReceivedLSN),
+
+			stat.LastMsgSendTime.String(),
+			stat.LastMsgReceiptTime.String(),
+
+			string(stat.LatestEndLSN),
+			stat.LatestEndTime.String(),
+		})
+	}
+
+	tbl, _ := pterm.DefaultTable.WithHasHeader().WithData(row).Srender()
+
+	return tbl, nil
+}
+
+func sRenderReplicationSlotsTable(conn *flare.Conn, dbName string) (string, error) {
+	thdr := []string{
+		"Slot Name", "Plugin", "Slot Type", "Database", "Temporary", "Active", "Confirmed Flush LSN",
+	}
+
+	var row [][]string
+	row = append(row, thdr)
+
+	slots, err := flare.ListReplicationSlotsByDatabase(context.Background(), conn, dbName)
+	if err != nil {
+		return "", err
+	}
+
+	for _, slot := range slots {
+		row = append(row, []string{
+			slot.SlotName,
+			slot.Plugin,
+			slot.SlotType,
+			slot.Database,
+			slot.Temporary,
+			slot.Active,
+			string(slot.ConfirmedFlushLSN),
+		})
+	}
+
+	tbl, _ := pterm.DefaultTable.WithHasHeader().WithData(row).Srender()
+
+	return tbl, nil
 }
 
 func sRenderDatabaseConnsTable(conn *flare.Conn, dbName string) (string, error) {
@@ -835,18 +945,19 @@ func sRenderDatabaseConnsTable(conn *flare.Conn, dbName string) (string, error) 
 	return tbl, nil
 }
 
-func buildMonitorConnections(gflags *globalFlags) *cobra.Command {
+func buildMonitor(gflags *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "monitor_connections [DBNAME]",
-		Short: "Monitor database connections for a given database",
+		Use:   "monitor [DBNAME] [SUBNAME]",
+		Short: "Monitor the replication for a given database",
 		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) != 1 {
-				cmd.PrintErr("please specify a database name\n\n")
+			if len(args) != 2 {
+				cmd.PrintErr("please specify a database name and a subscription name\n\n")
 				cmd.Usage()
 				os.Exit(1)
 			}
 
 			dbName := args[0]
+			subName := args[1]
 
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
@@ -872,18 +983,28 @@ func buildMonitorConnections(gflags *globalFlags) *cobra.Command {
 
 				ptbl, err := sRenderDatabaseConnsTable(pconn, dbName)
 				if err != nil {
-					log.Fatalf("Failed to query the connections: %s", err.Error())
+					log.Fatalf("Failed to query the connections in the publisher: %s", err.Error())
 				}
 
 				stbl, err := sRenderDatabaseConnsTable(sconn, dbName)
 				if err != nil {
-					log.Fatalf("Failed to query the connections: %s", err.Error())
+					log.Fatalf("Failed to query the connections in the subscriber: %s", err.Error())
+				}
+
+				slots, err := sRenderReplicationSlotsTable(pconn, dbName)
+				if err != nil {
+					log.Fatalf("Failed to query the replication slots: %s", err.Error())
+				}
+
+				stats, err := sRenderSubscriptionStats(sconn, subName)
+				if err != nil {
+					log.Fatalf("Failed to query the subscritpion stats: %s", err.Error())
 				}
 
 				area.Update(
 					fmt.Sprintf(
-						"%s\nPublisher:\n%s\n\nSubscriber:\n%s",
-						content, ptbl, stbl,
+						"%s\nPublisher:\n%s\n\nSubscriber:\n%s\n\nReplication Slots:\n%s\n\nSubscription Stats:\n%s",
+						content, ptbl, stbl, slots, stats,
 					),
 				)
 
@@ -891,6 +1012,51 @@ func buildMonitorConnections(gflags *globalFlags) *cobra.Command {
 			}
 
 			area.Stop()
+		},
+	}
+
+	return cmd
+}
+
+func buildDropSubscriptionCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "drop_subscription [SUBNAME]",
+		Short: "Drop a subscription in the subscriber",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a subscription name in the config\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			subName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			subCfg, ok := cfg.Subscriptions[subName]
+			if !ok {
+				log.Fatalf("Subscription '%s' is not found in the config\n", subName)
+			}
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), subCfg.DBName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Dropping a subscription...")
+
+			if _, err = conn.Exec(ctx, flare.DropSubscriptionQuery(subName)); err != nil {
+				log.Fatalf("Failed to drop the subscritpion: %w", err.Error())
+			}
+
+			log.Print("The subscription has been dropped")
 		},
 	}
 

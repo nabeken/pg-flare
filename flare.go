@@ -178,6 +178,13 @@ func CreateSubscriptionQuery(subName, connInfo, pubName string) string {
 	)
 }
 
+func DropSubscriptionQuery(subName string) string {
+	return fmt.Sprintf(
+		`DROP SUBSCRIPTION %s;`,
+		quoteIdentifier(subName),
+	)
+}
+
 func RevokeConnectionQuery(dbName string) string {
 	return fmt.Sprintf(
 		`REVOKE CONNECT ON DATABASE %s FROM PUBLIC;`,
@@ -189,6 +196,21 @@ func GrantConnectionQuery(dbName string) string {
 	return fmt.Sprintf(
 		`GRANT CONNECT ON DATABASE %s TO PUBLIC;`,
 		quoteIdentifier(dbName),
+	)
+}
+
+func GrantAllOnDatabaseQuery(dbName, role string) string {
+	return fmt.Sprintf(
+		`GRANT ALL ON DATABASE %s TO %s;`,
+		quoteIdentifier(dbName),
+		quoteIdentifier(role),
+	)
+}
+
+func GrantAllOnAllTablesQuery(role string) string {
+	return fmt.Sprintf(
+		`GRANT ALL ON ALL TABLES IN SCHEMA public TO %s;`,
+		quoteIdentifier(role),
 	)
 }
 
@@ -645,6 +667,107 @@ func ListConnectionByDatabase(ctx context.Context, conn *Conn, dbName string) ([
 	}
 
 	return dconns, nil
+}
+
+type ReplicationSlot struct {
+	SlotName          string
+	Plugin            string
+	SlotType          string
+	Database          string
+	Temporary         string
+	Active            string
+	ConfirmedFlushLSN zeronull.Text
+}
+
+func ListReplicationSlotsByDatabase(ctx context.Context, conn *Conn, dbName string) ([]ReplicationSlot, error) {
+	rows, err := conn.Query(ctx, `
+SELECT slot_name, plugin, slot_type, database, temporary::text, active::text, confirmed_flush_lsn::text
+FROM pg_replication_slots
+WHERE database = $1
+ORDER BY slot_name
+;
+		`, dbName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying the database conns: %w", err)
+	}
+
+	var slots []ReplicationSlot
+
+	for rows.Next() {
+		var sl ReplicationSlot
+		if err := rows.Scan(
+			&sl.SlotName,
+			&sl.Plugin,
+			&sl.SlotType,
+			&sl.Database,
+			&sl.Temporary,
+			&sl.Active,
+			&sl.ConfirmedFlushLSN,
+		); err != nil {
+			return nil, fmt.Errorf("scanning the slot: %w", err)
+		}
+
+		slots = append(slots, sl)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scanning the slots: %w", err)
+	}
+
+	return slots, nil
+}
+
+type SubscriptionStat struct {
+	SubID       string
+	SubName     string
+	PID         string
+	ReceivedLSN zeronull.Text
+
+	LastMsgSendTime    time.Time
+	LastMsgReceiptTime time.Time
+
+	LatestEndLSN  zeronull.Text
+	LatestEndTime time.Time
+}
+
+func ListSubscriptionStatByName(ctx context.Context, conn *Conn, subName string) ([]SubscriptionStat, error) {
+	rows, err := conn.Query(ctx, `
+SELECT subid::text, subname, pid::text, received_lsn::text, last_msg_send_time, last_msg_receipt_time, latest_end_lsn::text, latest_end_time
+FROM pg_stat_subscription
+WHERE subname = $1
+ORDER BY subid
+;
+	`, subName)
+	if err != nil {
+		return nil, fmt.Errorf("querying the subscription conns: %w", err)
+	}
+
+	var stats []SubscriptionStat
+
+	for rows.Next() {
+		var stat SubscriptionStat
+		if err := rows.Scan(
+			&stat.SubID,
+			&stat.SubName,
+			&stat.PID,
+			&stat.ReceivedLSN,
+			&stat.LastMsgSendTime,
+			&stat.LastMsgReceiptTime,
+			&stat.LatestEndLSN,
+			&stat.LatestEndTime,
+		); err != nil {
+			return nil, fmt.Errorf("scanning the subscritpion stat: %w", err)
+		}
+
+		stats = append(stats, stat)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scanning the stats: %w", err)
+	}
+
+	return stats, nil
 }
 
 func quoteIdentifier(s string) string {

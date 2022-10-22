@@ -190,6 +190,12 @@ postgres=> select version();
 ```
 
 **Create roles**:
+- the app user ("app"):
+
+  ```sh
+  createuser -U postgres -h 127.0.0.1 -p15432 --login --no-createrole --no-superuser --no-createdb --pwprompt app
+  ```
+
 - the database owner user ("dbowner"):
 
   ```sh
@@ -296,9 +302,19 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 ./flare --config rds_test.yml install_extensions bench
 ```
 
-**Grant the superuser CREATE to a given database if the RDS is running PostgreSQL 10**:
+**Grant the superuser CREATE to a given database if the RDS is running on PostgreSQL 10**:
 ```sh
 ./flare --config rds_test.yml grant_create --use-db-owner bench
+```
+
+**Grant the replication user all the privileges on a given database**:
+```sh
+./flare --config rds_test.yml grant_replication --use-db-owner bench
+```
+
+**Monitor the replication**:
+```sh
+./flare --config rds_test.yml monitor bench
 ```
 
 **Create a publication in the publisher for a given database (ie. `bench` in the example)**:
@@ -308,5 +324,10 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 
 **Create a subscription in the subscriber for a given database (ie. `bench` in the example)**:
 ```sh
-./flare --config rds_test.yml create_subscription --use-repl-user bench
+./flare --config rds_test.yml create_subscription --use-repl-user bench1
+```
+
+**Drop the subscription (ie. `bench1` in the example)**:
+```sh
+./flare --config rds_test.yml drop_subscription bench1
 ```
