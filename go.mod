@@ -11,6 +11,7 @@ require (
 	github.com/pterm/pterm v0.12.49
 	github.com/spf13/cobra v1.5.0
 	github.com/stretchr/testify v1.8.0
+	golang.org/x/sync v0.1.0
 )
 
 require (

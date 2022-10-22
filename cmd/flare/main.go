@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	flare "github.com/nabeken/pg-flare"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -416,7 +418,8 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 		Use:   "attack",
 		Short: "Generate write traffic against `flare_test` table in the publisher for testing",
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := context.Background()
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			defer stop()
 
 			pool, err := pgxpool.Connect(ctx, dsn)
 			if err != nil {
@@ -425,13 +428,23 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 
 			gen := flare.NewTrafficGenerator(pool, name)
 
-			log.Print("Begin to attack the database...")
+			eg, ctx := errgroup.WithContext(ctx)
 
-			if err := gen.KeepAlive(ctx); err != nil {
-				log.Println(err)
-			}
+			eg.Go(func() error {
+				log.Print("Start sending heartbeat...")
+				return gen.KeepAlive(ctx)
+			})
 
-			log.Print("Finished attacking the database...")
+			eg.Go(func() error {
+				log.Print("Begin to attack the database...")
+				return gen.Attack(ctx)
+			})
+
+			log.Print("Waiting for interrupt...")
+
+			err = eg.Wait()
+
+			log.Printf("Finished attacking the database: %s", err)
 		},
 	}
 
