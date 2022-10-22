@@ -11,4 +11,4 @@ RUN --mount=type=cache,target=/root/.cache \
 
 FROM gcr.io/distroless/base-debian11:latest
 COPY --from=build /go/bin/flare /
-CMD ["/flare"]
+ENTRYPOINT ["/flare"]

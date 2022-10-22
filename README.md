@@ -292,16 +292,6 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 \password dbowner
 ```
 
-**Replicate the schema from the publisher to the subscriber**:
-```sh
-./flare --config rds_test.yml replicate_schema --use-db-owner bench
-```
-
-**Replicate the installed extensions to the subscriber**:
-```sh
-./flare --config rds_test.yml install_extensions bench
-```
-
 **Grant the superuser CREATE to a given database if the RDS is running on PostgreSQL 10**:
 ```sh
 ./flare --config rds_test.yml grant_create --use-db-owner bench
@@ -312,9 +302,19 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 ./flare --config rds_test.yml grant_replication --use-db-owner bench
 ```
 
+**Replicate the schema from the publisher to the subscriber**:
+```sh
+./flare --config rds_test.yml replicate_schema --use-db-owner bench
+```
+
+**Replicate the installed extensions to the subscriber**:
+```sh
+./flare --config rds_test.yml install_extensions bench
+```
+
 **Monitor the replication**:
 ```sh
-./flare --config rds_test.yml monitor bench
+./flare --config rds_test.yml monitor bench bench1
 ```
 
 **Create a publication in the publisher for a given database (ie. `bench` in the example)**:
