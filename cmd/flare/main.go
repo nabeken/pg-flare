@@ -410,30 +410,24 @@ func buildReplicateRolesCmd(gflags *globalFlags) *cobra.Command {
 }
 
 func buildAttackCmd(gflags *globalFlags) *cobra.Command {
-	var dbUser, password string
+	var dsn, name string
 
 	cmd := &cobra.Command{
 		Use:   "attack",
 		Short: "Generate write traffic against `flare_test` table in the publisher for testing",
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := context.TODO()
-			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+			ctx := context.Background()
 
-			pubConnUserInfo := flare.UserInfo{
-				User:     dbUser,
-				Password: password,
-			}.WithHostInfo(cfg.Hosts.Publisher.Conn.GetHostInfo())
-
-			pool, err := pgxpool.Connect(ctx, pubConnUserInfo.DSNURI("flare_test"))
+			pool, err := pgxpool.Connect(ctx, dsn)
 			if err != nil {
 				log.Fatalf("Failed to connect to flare_test database: %s\n", err.Error())
 			}
 
-			gen := flare.NewTrafficGenerator(pool)
+			gen := flare.NewTrafficGenerator(pool, name)
 
 			log.Print("Begin to attack the database...")
 
-			if err := gen.Attack(ctx); err != nil {
+			if err := gen.KeepAlive(ctx); err != nil {
 				log.Println(err)
 			}
 
@@ -442,16 +436,16 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(
-		&dbUser,
-		"dbuser",
-		"app",
-		"Data User (must not be a super user)",
+		&dsn,
+		"dsn",
+		"postgres://postgres:postgres@127.0.0.1:5432/flare_test",
+		"Data Source Name",
 	)
 	cmd.Flags().StringVar(
-		&password,
-		"password",
-		"app",
-		"Data User Password",
+		&name,
+		"name",
+		"flare",
+		"Worker's ID",
 	)
 
 	return cmd
@@ -459,21 +453,21 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 
 func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 	var dropDBBefore bool
-	var dbUser string
+	var baseDSN string
+	var appUser string
 
 	cmd := &cobra.Command{
 		Use:   "create_attack_db",
 		Short: "Create database for testing",
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := context.TODO()
-			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+			ctx := context.Background()
 
-			log.Print("Creating the `flare_test` database in the publisher for testing...")
+			log.Print("Creating the `flare_test` database...")
 
 			if err := flare.CreateTestTable(
 				ctx,
-				cfg.Hosts.Publisher.Conn.SuperUserInfo(),
-				dbUser,
+				baseDSN,
+				appUser,
 				dropDBBefore,
 			); err != nil {
 				log.Fatal(err)
@@ -482,10 +476,17 @@ func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(
-		&dbUser,
-		"dbuser",
+		&appUser,
+		"app-user",
 		"app",
-		"Database User (must not be a super user)",
+		"Application User",
+	)
+
+	cmd.Flags().StringVar(
+		&baseDSN,
+		"base-dsn",
+		"postgres://postgres:postgres@127.0.0.1:5432",
+		"Base DSN (without database name)",
 	)
 
 	cmd.Flags().BoolVar(

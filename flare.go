@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,102 +15,9 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/goccy/go-yaml"
-	"github.com/google/uuid"
 	"github.com/jackc/pgtype/zeronull"
 	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/pgxpool"
 )
-
-type TrafficGenerator struct {
-	pool *pgxpool.Pool
-}
-
-func NewTrafficGenerator(pool *pgxpool.Pool) *TrafficGenerator {
-	return &TrafficGenerator{pool: pool}
-}
-
-func (g *TrafficGenerator) Attack(ctx context.Context) error {
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("Stop writing new items...")
-			return nil
-		default:
-		}
-
-		if err := g.WriteNewItem(); err != nil {
-			log.Printf("Failed to write a new item: %s", err)
-		}
-	}
-}
-
-func (g *TrafficGenerator) WriteNewItem() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tx, err := g.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("beginning a new transaction: %w", err)
-	}
-
-	if _, err := tx.Exec(
-		ctx,
-		`INSERT into items values($1, $2);`,
-		uuid.NewString(),
-		uuid.NewString(),
-	); err != nil {
-		return fmt.Errorf("inserting a new item: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commiting the item: %w", err)
-	}
-
-	return nil
-}
-
-const flareDatabaseSchema = `
-CREATE TABLE IF NOT EXISTS items (
-    id   TEXT PRIMARY KEY
-  , name TEXT NOT NULL
-);
-`
-
-func CreateTestTable(ctx context.Context, ui UserInfo, dbUser string, dropDBBefore bool) error {
-	conn, err := Connect(ctx, ui, "postgres")
-	if err != nil {
-		return err
-	}
-	defer conn.Close(ctx)
-
-	if dropDBBefore {
-		if _, err = conn.Exec(ctx, `DROP DATABASE flare_test;`); err != nil {
-			return fmt.Errorf("dropping a database: %w", err)
-		}
-	}
-
-	if _, err = conn.Exec(ctx, `CREATE DATABASE flare_test;`); err != nil {
-		return fmt.Errorf("creating a database: %w", err)
-	}
-
-	newConn, err := Connect(ctx, ui, "flare_test")
-	if err != nil {
-		return fmt.Errorf("chaging to the new database: %w", err)
-	}
-
-	if _, err := newConn.Exec(ctx, flareDatabaseSchema); err != nil {
-		return fmt.Errorf("creating tables: %w", err)
-	}
-
-	if _, err := newConn.Exec(
-		ctx,
-		fmt.Sprintf(`GRANT ALL ON items TO %s;`, quoteIdentifier(dbUser)),
-	); err != nil {
-		return fmt.Errorf("granting access to the dbuser: %w", err)
-	}
-
-	return nil
-}
 
 func StripRoleOptionsForRDS(roles string) (string, error) {
 	rr := strings.NewReplacer(
