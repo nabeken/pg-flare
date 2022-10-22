@@ -327,6 +327,11 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 ./flare --config rds_test.yml create_subscription --use-repl-user bench1
 ```
 
+**Pause write traffic and wait for the LSN to be advanced in the subscriber (ie. `bench` in the example)**:
+```sh
+./flare --config rds_test.yml pause_write --app-user app bench
+```
+
 **Drop the subscription (ie. `bench1` in the example)**:
 ```sh
 ./flare --config rds_test.yml drop_subscription bench1
