@@ -529,7 +529,8 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
+			// no need to connect to the targate database
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), "postgres")
 			if err != nil {
 				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
@@ -549,9 +550,9 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Database access against '%s' database has been revoked!", dbName)
 
 			log.Printf("Killing the existing connections against '%s' database...", dbName)
-			suconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			suconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), "postgres")
 			if err != nil {
-				log.Printf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
 			}
 			defer suconn.Close(ctx)
 
@@ -586,14 +587,14 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			// check the current LSN in the publisher
 			currentLSN, err := flare.GetCurrentLSN(ctx, suconn)
 			if err != nil {
-				log.Printf("Failed to get the current LSN from the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to get the current LSN from the publisher: %s\n", err.Error())
 			}
 
 			log.Printf("Current LSN in the publisher is '%s'", currentLSN)
 
 			subconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Printf("Failed to connect to the subscriber: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
 			}
 			defer subconn.Close(ctx)
 
