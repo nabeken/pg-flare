@@ -138,6 +138,22 @@ SELECT system_identifier FROM pg_control_system();
 ./flare resume_write bench
 ```
 
+**Execute an external command with a verified publisher and subscriber conninfo**:
+```sh
+./flare exec env | grep FLARE_CONNINFO
+FLARE_CONNINFO_PUBLISHER_HOST=127.0.0.1
+FLARE_CONNINFO_PUBLISHER_PORT=5430
+FLARE_CONNINFO_SUBSCRIBER_HOST=127.0.0.1
+FLARE_CONNINFO_SUBSCRIBER_PORT=5431
+
+# if you want to pass arguments to an external command, use `--` separator
+./flare --config ~/tmp/local.yml exec -- sh -c 'env' | grep FLARE_CONNINFO
+FLARE_CONNINFO_PUBLISHER_HOST=127.0.0.1
+FLARE_CONNINFO_PUBLISHER_PORT=5430
+FLARE_CONNINFO_SUBSCRIBER_HOST=127.0.0.1
+FLARE_CONNINFO_SUBSCRIBER_PORT=5431
+```
+
 ## Test Scenario with Amazon RDS
 
 **Launch the entire stack with terraform**:

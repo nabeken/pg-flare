@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"time"
@@ -67,6 +68,8 @@ func realmain() error {
 
 	//rootCmd.AddCommand(buildDropPublicationCmd(gflags))
 	rootCmd.AddCommand(buildDropSubscriptionCmd(gflags))
+
+	rootCmd.AddCommand(buildExecCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -1072,6 +1075,42 @@ func buildDropSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			log.Print("The subscription has been dropped")
+		},
+	}
+
+	return cmd
+}
+
+func buildExecCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "exec",
+		Short: "Execute a command with the connection configuration over envvars",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if len(args) == 0 {
+				cmd.PrintErr("please specify a command\n\n")
+				os.Exit(1)
+			}
+
+			ecmdName := args[0]
+			eargs := args[1:]
+
+			ecmd := exec.Command(ecmdName, eargs...)
+			ecmd.Env = append(os.Environ(),
+				fmt.Sprintf("FLARE_CONNINFO_PUBLISHER_HOST=%s", cfg.Hosts.Publisher.Conn.Host),
+				fmt.Sprintf("FLARE_CONNINFO_PUBLISHER_PORT=%s", cfg.Hosts.Publisher.Conn.Port),
+				fmt.Sprintf("FLARE_CONNINFO_SUBSCRIBER_HOST=%s", cfg.Hosts.Subscriber.Conn.Host),
+				fmt.Sprintf("FLARE_CONNINFO_SUBSCRIBER_PORT=%s", cfg.Hosts.Subscriber.Conn.Port),
+			)
+
+			ecmd.Stderr = os.Stderr
+			ecmd.Stdout = os.Stdout
+
+			if err := ecmd.Run(); err != nil {
+				log.Fatalf("Failed to run the command: %s", err)
+			}
 		},
 	}
 
