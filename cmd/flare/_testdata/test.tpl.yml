@@ -1,0 +1,32 @@
+hosts:
+  publisher:
+    conn:
+      superuser: 'postgres'
+      superuser_password: 'password1'
+
+      db_owner: 'postgres'
+      db_owner_password: 'password1'
+
+      repl_user: 'postgres'
+      repl_user_password: 'password1'
+
+      host: '127.0.0.1'
+      host_via_subscriber: 'publisher'
+
+      port: '5430'
+      port_via_subscriber: '5432'
+
+      system_identifier: '@@PUBLISHER_SYSTEM_ID@@'
+
+  subscriber:
+    conn:
+      superuser: 'postgres'
+      superuser_password: 'password2'
+
+      db_owner: 'postgres'
+      db_owner_password: 'pasword2'
+
+      host: '127.0.1'
+      port: '5431'
+
+      system_identifier: '@@SUBSCRIBER_SYSTEM_ID@@'

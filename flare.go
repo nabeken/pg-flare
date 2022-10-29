@@ -409,7 +409,7 @@ func (e SystemIdentifierError) Error() string {
 	)
 }
 
-func (c *Conn) getSystemIdentifier(ctx context.Context) (string, error) {
+func (c *Conn) GetSystemIdentifier(ctx context.Context) (string, error) {
 	var identifier int64
 
 	if err := c.Conn.QueryRow(
@@ -423,7 +423,7 @@ func (c *Conn) getSystemIdentifier(ctx context.Context) (string, error) {
 }
 
 func (c *Conn) VerifySystemIdentifier(ctx context.Context) error {
-	identifierStr, err := c.getSystemIdentifier(ctx)
+	identifierStr, err := c.GetSystemIdentifier(ctx)
 	if err != nil {
 		return err
 	}

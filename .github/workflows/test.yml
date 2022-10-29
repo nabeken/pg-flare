@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
+      postgres: # publisher
         image: postgres:10
         env:
           POSTGRES_PASSWORD: password1
@@ -18,6 +18,17 @@ jobs:
           --health-retries 5
         ports:
           - 5430:5432
+      postgres14: # subscriber
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: password2
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5431:5432
 
     steps:
       - name: Set up Go 1.19.x
@@ -34,3 +45,7 @@ jobs:
 
       - name: Test
         run: go test -v -cover ./...
+
+      - name: CLI Test
+        run: |
+          go build -v ./cmd/flare
