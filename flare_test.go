@@ -215,7 +215,7 @@ func TestConn(t *testing.T) {
 
 		defer conn1.Close(ctx)
 
-		correctIden, err := conn1.getSystemIdentifier(ctx)
+		correctIden, err := conn1.GetSystemIdentifier(ctx)
 		require.NoError(err)
 
 		// create a new conn with correct identifier

@@ -122,7 +122,7 @@ func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn s
 	cfg := readConfigFileOrExit(cmd, fn)
 
 	if err := verifyConnection(ctx, cmd, cfg); err != nil {
-		log.Fatalf("Failed to verify the connection: %s\n", err.Error())
+		log.Fatalf("Failed to verify the connection: %s\n", err)
 	}
 
 	return cfg
@@ -131,7 +131,7 @@ func readConfigFileAndVerifyOrExit(ctx context.Context, cmd *cobra.Command, fn s
 func readConfigFileOrExit(cmd *cobra.Command, fn string) flare.Config {
 	cfg, err := parseConfigFile(fn)
 	if err != nil {
-		log.Fatalf("Failed to parse the configuration: %s\n", err.Error())
+		log.Fatalf("Failed to parse the configuration: %s\n", err)
 	}
 
 	return cfg
@@ -185,7 +185,7 @@ func buildCreateSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), subCfg.DBName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -237,7 +237,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 				func() {
 					dboconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 					if err != nil {
-						log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+						log.Fatalf("Failed to connect to the publisher: %s\n", err)
 					}
 
 					defer dboconn.Close(ctx)
@@ -245,7 +245,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 					log.Printf("Setting REPLICA IDENTITY FULL for '%s'", tbl)
 
 					if _, err = dboconn.Exec(ctx, flare.AlterTableReplicaIdentityFull(tbl)); err != nil {
-						log.Fatalf("Failed to set the replica identity full: %s", err.Error())
+						log.Fatalf("Failed to set the replica identity full: %s", err)
 					}
 				}()
 			}
@@ -254,7 +254,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -264,7 +264,7 @@ func buildCreatePublicationCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			if _, err = conn.Exec(ctx, flare.CreatePublicationQuery(pubCfg.PubName)); err != nil {
-				log.Fatalf("Failed to create a publication: %s", err.Error())
+				log.Fatalf("Failed to create a publication: %s", err)
 			}
 
 			log.Print("Publisher in the source has been created")
@@ -426,7 +426,7 @@ func buildAttackCmd(gflags *globalFlags) *cobra.Command {
 
 			pool, err := pgxpool.Connect(ctx, dsn)
 			if err != nil {
-				log.Fatalf("Failed to connect to flare_test database: %s\n", err.Error())
+				log.Fatalf("Failed to connect to flare_test database: %s\n", err)
 			}
 
 			gen := flare.NewTrafficGenerator(pool, name)
@@ -535,7 +535,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			// no need to connect to the targate database
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), "postgres")
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -555,7 +555,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			log.Printf("Killing the existing connections against '%s' database...", dbName)
 			suconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), "postgres")
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 			defer suconn.Close(ctx)
 
@@ -590,14 +590,14 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 			// check the current LSN in the publisher
 			currentLSN, err := flare.GetCurrentLSN(ctx, suconn)
 			if err != nil {
-				log.Fatalf("Failed to get the current LSN from the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to get the current LSN from the publisher: %s\n", err)
 			}
 
 			log.Printf("Current LSN in the publisher is '%s'", currentLSN)
 
 			subconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err)
 			}
 			defer subconn.Close(ctx)
 
@@ -606,7 +606,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 
 				receivedLSN, followed, err := flare.GetReceivedLSN(ctx, subconn, currentLSN)
 				if err != nil {
-					log.Fatalf("Failed to get received_lsn from the subscriber: %s", err.Error())
+					log.Fatalf("Failed to get received_lsn from the subscriber: %s", err)
 				}
 
 				if followed {
@@ -649,7 +649,7 @@ func buildResumeWriteCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -698,7 +698,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 
 			pconn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer pconn.Close(ctx)
@@ -706,7 +706,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 			// list the installed extensions
 			installedExts, err := flare.ListInstalledExtensions(ctx, pconn)
 			if err != nil {
-				log.Fatalf("Failed to list the installed extensions: %s\n", err.Error())
+				log.Fatalf("Failed to list the installed extensions: %s\n", err)
 			}
 
 			subConnUserInfo := cfg.Hosts.Subscriber.Conn.SuperUserInfo()
@@ -717,7 +717,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 
 			sconn, err := flare.Connect(ctx, subConnUserInfo, dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err)
 			}
 
 			defer sconn.Close(ctx)
@@ -732,7 +732,7 @@ func buildInstallExtensionsCmd(gflags *globalFlags) *cobra.Command {
 
 				if _, err := sconn.Exec(ctx, flare.CreateExtensionQuery(ext)); err != nil {
 					log.Fatalf(
-						"Failed to install '%s' extension into the subscriber: %s\n", ext, err.Error(),
+						"Failed to install '%s' extension into the subscriber: %s\n", ext, err,
 					)
 				}
 
@@ -790,7 +790,7 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -841,17 +841,17 @@ func buildGrantReplicationCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, pubConnUserInfo, dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
 
 			if _, err := conn.Exec(ctx, flare.GrantAllOnDatabaseQuery(dbName, replUser)); err != nil {
-				log.Fatalf("Failed to grant on the database: %s", err.Error())
+				log.Fatalf("Failed to grant on the database: %s", err)
 			}
 
 			if _, err := conn.Exec(ctx, flare.GrantAllOnAllTablesQuery(replUser)); err != nil {
-				log.Fatalf("Failed to grant on all the tables: %s", err.Error())
+				log.Fatalf("Failed to grant on all the tables: %s", err)
 			}
 
 			log.Printf("'%s' has been granted for '%s'!", replUser, dbName)
@@ -982,13 +982,13 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 
 			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s", err)
 			}
 			defer pconn.Close(ctx)
 
 			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s", err.Error())
+				log.Fatalf("Failed to connect to the publisher: %s", err)
 			}
 			defer sconn.Close(ctx)
 
@@ -1001,22 +1001,22 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 
 				ptbl, err := sRenderDatabaseConnsTable(pconn, dbName)
 				if err != nil {
-					log.Fatalf("Failed to query the connections in the publisher: %s", err.Error())
+					log.Fatalf("Failed to query the connections in the publisher: %s", err)
 				}
 
 				stbl, err := sRenderDatabaseConnsTable(sconn, dbName)
 				if err != nil {
-					log.Fatalf("Failed to query the connections in the subscriber: %s", err.Error())
+					log.Fatalf("Failed to query the connections in the subscriber: %s", err)
 				}
 
 				slots, err := sRenderReplicationSlotsTable(pconn, dbName)
 				if err != nil {
-					log.Fatalf("Failed to query the replication slots: %s", err.Error())
+					log.Fatalf("Failed to query the replication slots: %s", err)
 				}
 
 				stats, err := sRenderSubscriptionStats(sconn, subName)
 				if err != nil {
-					log.Fatalf("Failed to query the subscritpion stats: %s", err.Error())
+					log.Fatalf("Failed to query the subscritpion stats: %s", err)
 				}
 
 				area.Update(
@@ -1059,7 +1059,7 @@ func buildDropSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 
 			conn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), subCfg.DBName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the subscriber: %s\n", err.Error())
+				log.Fatalf("Failed to connect to the subscriber: %s\n", err)
 			}
 
 			defer conn.Close(ctx)
@@ -1071,7 +1071,7 @@ func buildDropSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 			log.Print("Dropping a subscription...")
 
 			if _, err = conn.Exec(ctx, flare.DropSubscriptionQuery(subName)); err != nil {
-				log.Fatalf("Failed to drop the subscritpion: %w", err.Error())
+				log.Fatalf("Failed to drop the subscritpion: %s", err)
 			}
 
 			log.Print("The subscription has been dropped")
