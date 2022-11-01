@@ -687,14 +687,14 @@ ORDER BY slot_name
 type SubscriptionStat struct {
 	SubID       string
 	SubName     string
-	PID         string
+	PID         zeronull.Text
 	ReceivedLSN zeronull.Text
 
-	LastMsgSendTime    time.Time
-	LastMsgReceiptTime time.Time
+	LastMsgSendTime    zeronull.Timestamp
+	LastMsgReceiptTime zeronull.Timestamp
 
 	LatestEndLSN  zeronull.Text
-	LatestEndTime time.Time
+	LatestEndTime zeronull.Timestamp
 }
 
 func ListSubscriptionStatByName(ctx context.Context, conn *Conn, subName string) ([]SubscriptionStat, error) {

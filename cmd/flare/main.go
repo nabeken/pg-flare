@@ -884,15 +884,16 @@ func sRenderSubscriptionStats(conn *flare.Conn, subName string) (string, error) 
 		row = append(row, []string{
 			stat.SubID,
 			stat.SubName,
-			stat.PID,
+
+			string(stat.PID),
 
 			string(stat.ReceivedLSN),
 
-			stat.LastMsgSendTime.String(),
-			stat.LastMsgReceiptTime.String(),
+			time.Time(stat.LastMsgSendTime).String(),
+			time.Time(stat.LastMsgReceiptTime).String(),
 
 			string(stat.LatestEndLSN),
-			stat.LatestEndTime.String(),
+			time.Time(stat.LatestEndTime).String(),
 		})
 	}
 
