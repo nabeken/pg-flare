@@ -519,34 +519,63 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 	var appUser string
 
 	cmd := &cobra.Command{
-		Use:   "pause_write",
+		Use:   "pause_write [DBNAME] [SUBNAME]",
 		Short: "Pause write traffic by revoking and killing access to a given databas in the publisher",
 		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) != 1 {
-				cmd.PrintErr("please specify a database name\n\n")
+			if len(args) != 2 {
+				cmd.PrintErr("please specify a database and subscription name\n\n")
 				cmd.Usage()
 				os.Exit(1)
 			}
 
 			dbName := args[0]
+			subName := args[1]
+
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
-			// no need to connect to the targate database
-			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), "postgres")
+			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
 				log.Fatalf("Failed to connect to the publisher: %s\n", err)
 			}
 
-			defer conn.Close(ctx)
+			defer pconn.Close(ctx)
 
-			if err := conn.Ping(ctx); err != nil {
+			if err := pconn.Ping(ctx); err != nil {
 				log.Fatal(err)
 			}
 
+			// check whether the logical replication is working for 1 minute at least because if the logical replication has an issue, the process is being died repeadtly
+			log.Printf("Checking whether the logical replication is working for subscription of '%s'...", subName)
+
+			stats, err := flare.ListReplicationStatsBySubscription(ctx, pconn, subName)
+			if err != nil {
+				log.Fatalf("Failed to list subscription stats: %s", err)
+			}
+
+			if len(stats) > 1 {
+				log.Fatal("There are multiple subscriptions... that sounds weird.")
+			}
+
+			if len(stats) == 0 {
+				log.Fatalf("There is no ongoing replication for subscription of '%s. Please check error log.", subName)
+			}
+
+			repStat := stats[0]
+			if string(repStat.ApplicationName) != subName {
+				log.Fatalf("The replication doesn't sound for subscription of '%s'", subName)
+			}
+
+			repSince := time.Since(repStat.BackendStart)
+			if repSince < time.Minute {
+				log.Fatalf("The replication doesn't seem to be stable because it just started %s ago. Please check error log.", repSince)
+			}
+
+			log.Printf("The logical replication is working for subscription of '%s' for %s", subName, repSince)
+
 			log.Printf("Revoking the access against '%s' database from PUBLIC...", dbName)
 
-			if _, err = conn.Exec(ctx, flare.RevokeConnectionQuery(dbName)); err != nil {
+			if _, err = pconn.Exec(ctx, flare.RevokeConnectionQuery(dbName)); err != nil {
 				log.Fatal(err)
 			}
 
