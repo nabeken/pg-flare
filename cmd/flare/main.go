@@ -901,6 +901,37 @@ func sRenderSubscriptionStats(conn *flare.Conn, subName string) (string, error) 
 	return tbl, nil
 }
 
+func sRenderReplicationStatsTable(conn *flare.Conn, subName string) (string, error) {
+	thdr := []string{
+		"PID", "User Name", "Application Name", "Client Addr", "Backend Start", "State", "Sent LSN", "Reply LSN",
+	}
+
+	var row [][]string
+	row = append(row, thdr)
+
+	stats, err := flare.ListReplicationStatsBySubscription(context.Background(), conn, subName)
+	if err != nil {
+		return "", err
+	}
+
+	for _, stat := range stats {
+		row = append(row, []string{
+			stat.PID,
+			stat.UserName,
+			string(stat.ApplicationName),
+			string(stat.ClientAddr),
+			stat.BackendStart.String(),
+			string(stat.State),
+			string(stat.SentLSN),
+			string(stat.ReplayLSN),
+		})
+	}
+
+	tbl, _ := pterm.DefaultTable.WithHasHeader().WithData(row).Srender()
+
+	return tbl, nil
+}
+
 func sRenderReplicationSlotsTable(conn *flare.Conn, dbName string) (string, error) {
 	thdr := []string{
 		"Slot Name", "Plugin", "Slot Type", "Database", "Temporary", "Active", "Confirmed Flush LSN",
@@ -1014,6 +1045,11 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 					log.Fatalf("Failed to query the replication slots: %s", err)
 				}
 
+				repStats, err := sRenderReplicationStatsTable(pconn, subName)
+				if err != nil {
+					log.Fatalf("Failed to query the replication slots: %s", err)
+				}
+
 				stats, err := sRenderSubscriptionStats(sconn, subName)
 				if err != nil {
 					log.Fatalf("Failed to query the subscritpion stats: %s", err)
@@ -1021,8 +1057,8 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 
 				area.Update(
 					fmt.Sprintf(
-						"%s\nPublisher:\n%s\n\nSubscriber:\n%s\n\nReplication Slots:\n%s\n\nSubscription Stats:\n%s",
-						content, ptbl, stbl, slots, stats,
+						"%s\nPublisher:\n%s\n\nSubscriber:\n%s\n\nReplication Slots:\n%s\n\nReplication Stats:\n%s\n\nSubscription Stats:\n%s",
+						content, ptbl, stbl, slots, repStats, stats,
 					),
 				)
 

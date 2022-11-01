@@ -585,6 +585,66 @@ type ReplicationSlot struct {
 	ConfirmedFlushLSN zeronull.Text
 }
 
+type ReplicationStat struct {
+	PID             string
+	UserName        string
+	ApplicationName zeronull.Text
+	ClientAddr      zeronull.Text
+	BackendStart    time.Time
+	State           zeronull.Text
+
+	SentLSN   zeronull.Text
+	ReplayLSN zeronull.Text
+}
+
+func ListReplicationStatsBySubscription(ctx context.Context, conn *Conn, subName string) ([]ReplicationStat, error) {
+	rows, err := conn.Query(ctx, `
+SELECT
+	  pid::text
+	, usename
+	, application_name
+	, client_addr::text
+	, backend_start
+	, state::text
+	, sent_lsn::text
+	, replay_lsn::text
+FROM pg_stat_replication
+WHERE application_name = $1
+ORDER BY pid
+;
+		`, subName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying the replication stats: %w", err)
+	}
+
+	var stats []ReplicationStat
+
+	for rows.Next() {
+		var sl ReplicationStat
+		if err := rows.Scan(
+			&sl.PID,
+			&sl.UserName,
+			&sl.ApplicationName,
+			&sl.ClientAddr,
+			&sl.BackendStart,
+			&sl.State,
+			&sl.SentLSN,
+			&sl.ReplayLSN,
+		); err != nil {
+			return nil, fmt.Errorf("scanning the stat: %w", err)
+		}
+
+		stats = append(stats, sl)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scanning the stats: %w", err)
+	}
+
+	return stats, nil
+}
+
 func ListReplicationSlotsByDatabase(ctx context.Context, conn *Conn, dbName string) ([]ReplicationSlot, error) {
 	rows, err := conn.Query(ctx, `
 SELECT slot_name, plugin, slot_type, database, temporary::text, active::text, confirmed_flush_lsn::text
