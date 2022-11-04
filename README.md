@@ -104,6 +104,11 @@ SELECT system_identifier FROM pg_control_system();
 ./flare grant_create bench
 ```
 
+**Create a table to write a probe message in a given database to ensure a latest transaction is replicated to the subscriber (ie. `bench` in the example)**:
+```sh
+./flare create_replication_status_table bench
+```
+
 **Replicating the schema in a given database (ie. `bench` in the example)**:
 ```sh
 ./flare replicate_schema bench
@@ -316,6 +321,11 @@ psql -U postgres -h 127.0.0.1 -p 35432 postgres
 **Grant the replication user all the privileges on a given database**:
 ```sh
 ./flare --config rds_test.yml grant_replication --use-db-owner bench
+```
+
+**Create the probe table in the publisher**:
+```sh
+./flare --config rds_test.yml create_replication_status_table bench
 ```
 
 **Replicate the schema from the publisher to the subscriber**:
