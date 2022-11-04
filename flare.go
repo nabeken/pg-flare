@@ -19,6 +19,63 @@ import (
 	"github.com/jackc/pgx/v4"
 )
 
+func CreateFlareStatusTable(ctx context.Context, conn *Conn) error {
+	const tableSchema = `
+CREATE TABLE IF NOT EXISTS flare_replication_status (
+   system_identifier  TEXT PRIMARY KEY
+ , uuid               TEXT NOT NULL
+ , created_at         TEXT NOT NULL
+);
+`
+
+	if _, err := conn.Exec(ctx, tableSchema); err != nil {
+		return fmt.Errorf("creating the status table: %w", err)
+	}
+
+	return nil
+}
+
+func WriteReplicationStatus(ctx context.Context, conn *Conn, sysID, uuid string) error {
+	if _, err := conn.Exec(
+		ctx,
+		`INSERT INTO flare_replication_status VALUES ($1, $2, now());`,
+		sysID, uuid,
+	); err != nil {
+		return fmt.Errorf("writing the replication status to the table: %w", err)
+	}
+
+	return nil
+}
+
+func DeleteReplicationStatus(ctx context.Context, conn *Conn, sysID string) error {
+	if _, err := conn.Exec(
+		ctx,
+		`DELETE FROM flare_replication_status WHERE system_identifier = $1;`,
+		sysID,
+	); err != nil {
+		return fmt.Errorf("deleting the replication status from the table: %w", err)
+	}
+
+	return nil
+}
+
+func ReadReplicationStatus(ctx context.Context, conn *Conn, sysID, uuid string) error {
+	var exists bool
+	err := conn.QueryRow(
+		ctx,
+		`SELECT TRUE
+		 FROM flare_replication_status
+		 WHERE system_identifier = $1 AND uuid = $2;`,
+		sysID, uuid,
+	).Scan(&exists)
+
+	if err != nil {
+		return fmt.Errorf("querying the replication status: %w", err)
+	}
+
+	return nil
+}
+
 func StripRoleOptionsForRDS(roles string) (string, error) {
 	rr := strings.NewReplacer(
 		" NOSUPERUSER", "",
@@ -88,6 +145,13 @@ func DropSubscriptionQuery(subName string) string {
 	return fmt.Sprintf(
 		`DROP SUBSCRIPTION %s;`,
 		quoteIdentifier(subName),
+	)
+}
+
+func DropPublicationQuery(pubName string) string {
+	return fmt.Sprintf(
+		`DROP PUBLICATION %s;`,
+		quoteIdentifier(pubName),
 	)
 }
 
@@ -476,21 +540,21 @@ func GetCurrentLSN(ctx context.Context, conn *Conn) (string, error) {
 	return currentLSN, nil
 }
 
-func GetReceivedLSN(ctx context.Context, conn *Conn, pubCurrentLSN string) (string, bool, error) {
+func CheckWhetherReplayLSNIsAdvanced(ctx context.Context, conn *Conn, currentLSN string) (string, bool, error) {
 	var (
-		receivedLSN string
-		followed    bool
+		replayLSN string
+		advanced  bool
 	)
 
 	if err := conn.QueryRow(
 		ctx,
-		`SELECT received_lsn::text, received_lsn >= $1::pg_lsn FROM pg_stat_subscription;`,
-		pubCurrentLSN,
-	).Scan(&receivedLSN, &followed); err != nil {
+		`SELECT replay_lsn::text, replay_lsn >= $1::pg_lsn FROM pg_stat_replication;`,
+		currentLSN,
+	).Scan(&replayLSN, &advanced); err != nil {
 		return "", false, fmt.Errorf("scanning received_lsn: %w", err)
 	}
 
-	return receivedLSN, followed, nil
+	return replayLSN, advanced, nil
 }
 
 func ListInstalledExtensions(ctx context.Context, conn *Conn) ([]string, error) {

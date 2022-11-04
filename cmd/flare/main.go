@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	flare "github.com/nabeken/pg-flare"
 	"github.com/pterm/pterm"
@@ -66,10 +69,13 @@ func realmain() error {
 
 	rootCmd.AddCommand(buildMonitor(gflags))
 
-	//rootCmd.AddCommand(buildDropPublicationCmd(gflags))
+	rootCmd.AddCommand(buildDropPublicationCmd(gflags))
 	rootCmd.AddCommand(buildDropSubscriptionCmd(gflags))
 
 	rootCmd.AddCommand(buildExecCmd(gflags))
+
+	rootCmd.AddCommand(buildCreateReplicationStatusTableCmd(gflags))
+	rootCmd.AddCommand(buildResetReplicationStatusCmd(gflags))
 
 	return rootCmd.Execute()
 }
@@ -517,6 +523,7 @@ func buildCreateAttackDBCmd(gflags *globalFlags) *cobra.Command {
 
 func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 	var appUser string
+	var allowedRepDuration string
 
 	cmd := &cobra.Command{
 		Use:   "pause_write [DBNAME] [SUBNAME]",
@@ -526,6 +533,11 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 				cmd.PrintErr("please specify a database and subscription name\n\n")
 				cmd.Usage()
 				os.Exit(1)
+			}
+
+			repDuration, err := time.ParseDuration(allowedRepDuration)
+			if err != nil {
+				log.Fatalf("Failed to parse allowedRepDuration: %s", err)
 			}
 
 			dbName := args[0]
@@ -545,29 +557,31 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 				log.Fatal(err)
 			}
 
+			log.Printf("Checking whether only one logical replication is working for '%s'...", dbName)
+
+			// check the replication slots for the database
+			// abort if there are multiple slots ongoing for the database, which indicates it's in the initial sync
+			repSlots, err := flare.ListReplicationSlotsByDatabase(ctx, pconn, dbName)
+			if err != nil {
+				log.Fatalf("Failed to list the replication slots for %s: %s", dbName, err)
+			}
+
+			if len(repSlots) > 1 {
+				log.Fatalf("There are more than one replications are ongoing for '%s' where it should be only one in progress", dbName)
+			}
+
+			log.Printf("Confirmed there is only one replication is working for %s", dbName)
+
 			// check whether the logical replication is working for 1 minute at least because if the logical replication has an issue, the process is being died repeadtly
 			log.Printf("Checking whether the logical replication is working for subscription of '%s'...", subName)
 
-			stats, err := flare.ListReplicationStatsBySubscription(ctx, pconn, subName)
-			if err != nil {
-				log.Fatalf("Failed to list subscription stats: %s", err)
-			}
-
-			if len(stats) > 1 {
-				log.Fatal("There are multiple subscriptions... that sounds weird.")
-			}
-
-			if len(stats) == 0 {
-				log.Fatalf("There is no ongoing replication for subscription of '%s. Please check error log.", subName)
-			}
-
-			repStat := stats[0]
+			repStat := mustGetReplicationStatBySubscription(ctx, pconn, subName)
 			if string(repStat.ApplicationName) != subName {
 				log.Fatalf("The replication doesn't sound for subscription of '%s'", subName)
 			}
 
 			repSince := time.Since(repStat.BackendStart)
-			if repSince < time.Minute {
+			if repSince < repDuration {
 				log.Fatalf("The replication doesn't seem to be stable because it just started %s ago. Please check error log.", repSince)
 			}
 
@@ -616,36 +630,39 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 
 			log.Printf("No connections against '%s' database are detected!", dbName)
 
-			// check the current LSN in the publisher
-			currentLSN, err := flare.GetCurrentLSN(ctx, suconn)
-			if err != nil {
-				log.Fatalf("Failed to get the current LSN from the publisher: %s\n", err)
+			log.Printf("Checking the current replication stats again for the final confirmation...")
+			repStat2 := mustGetReplicationStatBySubscription(ctx, pconn, subName)
+			if string(repStat2.ApplicationName) != subName {
+				log.Fatalf("The replication doesn't sound for subscription of '%s'", subName)
 			}
 
-			log.Printf("Current LSN in the publisher is '%s'", currentLSN)
+			log.Printf("Writing a probe record to %s...", dbName)
+			repUUID := uuid.New().String()
+			if err := flare.WriteReplicationStatus(ctx, pconn, cfg.Hosts.Publisher.Conn.SystemIdentifier, repUUID); err != nil {
+				log.Fatalf("Failed to write a probe record: %s", err)
+			}
 
-			subconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
+			subconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.DBOwnerInfo(), dbName)
 			if err != nil {
 				log.Fatalf("Failed to connect to the subscriber: %s\n", err)
 			}
 			defer subconn.Close(ctx)
 
 			for {
-				log.Print("Checking whether the subscriber consumes WAL after the application traffic is suspended...")
+				log.Print("Checking whether the subscriber the latest write after the application traffic is suspended...")
 
-				receivedLSN, followed, err := flare.GetReceivedLSN(ctx, subconn, currentLSN)
-				if err != nil {
-					log.Fatalf("Failed to get received_lsn from the subscriber: %s", err)
+				if err := flare.ReadReplicationStatus(ctx, subconn, cfg.Hosts.Publisher.Conn.SystemIdentifier, repUUID); err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						log.Print("The record isn't arrived at the subscriber...")
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+
+					log.Fatalf("Faild to read the replication status: %s", err)
 				}
 
-				if followed {
-					log.Printf("The subscriber has consumed WAL (%s) after the traffic is suspended (%s). Good to switch to the subscriber now.", receivedLSN, currentLSN)
-					break
-				}
-
-				log.Printf("The subscriber doesn't seem to consume WAL (%s) so waiting for it...", currentLSN)
-
-				time.Sleep(100 * time.Millisecond)
+				log.Print("The record has arrived at the subscriber! It's time to switch!")
+				break
 			}
 		},
 	}
@@ -655,6 +672,12 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 		"app-user",
 		"postgres",
 		"Specify an application to be paused",
+	)
+	cmd.Flags().StringVar(
+		&allowedRepDuration,
+		"allowed-rep-duration",
+		"1m",
+		"Specify how long we will wait to consider the replication is stable",
 	)
 	cmd.MarkFlagRequired("app-user")
 
@@ -1102,6 +1125,51 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 	return cmd
 }
 
+func buildDropPublicationCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "drop_publication [DBNAME]",
+		Short: "Drop a publication in the publisher",
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database name in the config\n\n")
+				cmd.Usage()
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			pubCfg, ok := cfg.Publications[dbName]
+			if !ok {
+				log.Fatalf("Database '%s' is not found in the config\n", dbName)
+			}
+
+			conn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
+			}
+
+			defer conn.Close(ctx)
+
+			if err := conn.Ping(ctx); err != nil {
+				log.Fatal(err)
+			}
+
+			log.Print("Dropping a publication...")
+
+			if _, err = conn.Exec(ctx, flare.DropPublicationQuery(pubCfg.PubName)); err != nil {
+				log.Fatalf("Failed to drop the publication: %s", err)
+			}
+
+			log.Printf("The publication `%s` has been dropped", pubCfg.PubName)
+		},
+	}
+
+	return cmd
+}
+
 func buildDropSubscriptionCmd(gflags *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "drop_subscription [SUBNAME]",
@@ -1177,6 +1245,91 @@ func buildExecCmd(gflags *globalFlags) *cobra.Command {
 			if err := ecmd.Run(); err != nil {
 				log.Fatalf("Failed to run the command: %s", err)
 			}
+		},
+	}
+
+	return cmd
+}
+
+func mustGetReplicationStatBySubscription(ctx context.Context, conn *flare.Conn, subName string) flare.ReplicationStat {
+	stats, err := flare.ListReplicationStatsBySubscription(ctx, conn, subName)
+	if err != nil {
+		log.Fatalf("Failed to list subscription stats: %s", err)
+	}
+
+	if len(stats) > 1 {
+		log.Fatal("There are multiple subscriptions... that sounds weird.")
+	}
+
+	if len(stats) == 0 {
+		log.Fatalf("There is no ongoing replication for subscription of '%s'. Please check error log.", subName)
+	}
+
+	return stats[0]
+}
+
+func buildCreateReplicationStatusTableCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create_replication_status_table [DBNAME]",
+		Short: "Create a table that manage a replication status",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if len(args) == 0 {
+				cmd.PrintErr("please specify a database\n\n")
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			dboconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
+			}
+
+			defer dboconn.Close(ctx)
+
+			log.Print("Creating a table to maintain the replication status...")
+
+			if err := flare.CreateFlareStatusTable(ctx, dboconn); err != nil {
+				log.Fatalf("Failed to create flare_replication_status table in %s: %s", dbName, err)
+			}
+
+			log.Printf("flare_replication_status table has been created in '%s' database!", dbName)
+		},
+	}
+
+	return cmd
+}
+
+func buildResetReplicationStatusCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reset_replication_status [DBNAME]",
+		Short: "Reset the replication status",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if len(args) == 0 {
+				cmd.PrintErr("please specify a database\n\n")
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			dboconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.DBOwnerInfo(), dbName)
+			if err != nil {
+				log.Fatalf("Failed to connect to the publisher: %s\n", err)
+			}
+
+			defer dboconn.Close(ctx)
+
+			if err := flare.DeleteReplicationStatus(ctx, dboconn, cfg.Hosts.Publisher.Conn.SystemIdentifier); err != nil {
+				log.Fatalf("Failed to create flare_replication_status table in %s: %s", dbName, err)
+			}
+
+			log.Printf("The replication status has been reset for %s", dbName)
 		},
 	}
 
