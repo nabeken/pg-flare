@@ -271,15 +271,13 @@ hosts:
       system_identifier: '<identifier>'
 
 publications:
-  bench:
-    pubname: bench-pub
-    replica_identity_full_tables:
-      - pgbench_history
+  flare_test:
+    pubname: flare-pub
 
 subscriptions:
-  bench1:
-    dbname: bench
-    pubname: bench-pub
+  flare1:
+    dbname: flare_test
+    pubname: flare-pub
 ```
 
 **Verify the connectivity**:
@@ -287,15 +285,15 @@ subscriptions:
 ./flare --config rds_test.yml verify_connectivity
 ```
 
-**Create a database for pgbench**:
+**Create a database for testing**:
 ```sh
-createdb -U dbowner -h 127.0.0.1 -p 15432 bench
-pgbench -U dbowner -h 127.0.0.1 -p 15432 -i -s 1 -q bench
+./flare create_attack_db --app-user app --base-dsn postgres://dbowner:dbowner@127.0.0.1:15432
+./flare --config rds_test.yml create_replication_status_table flare_test
 ```
 
 **Install some extensions to demonstrate the command**:
 ```sh
-cat <<EOF | psql -U postgres -h 127.0.0.1 -p 15432 bench
+cat <<EOF | psql -U postgres -h 127.0.0.1 -p 15432 flare_test
 CREATE EXTENSION pgcrypto;
 EOF
 ```
@@ -311,54 +309,64 @@ EOF
 psql -U postgres -h 127.0.0.1 -p 35432 postgres
 
 \password dbowner
+
+\password app
 ```
 
 **Grant the superuser CREATE to a given database if the RDS is running on PostgreSQL 10**:
 ```sh
-./flare --config rds_test.yml grant_create --use-db-owner bench
+./flare --config rds_test.yml grant_create --use-db-owner flare_test
 ```
 
 **Grant the replication user all the privileges on a given database**:
 ```sh
-./flare --config rds_test.yml grant_replication --use-db-owner bench
+./flare --config rds_test.yml grant_replication --use-db-owner flare_test
 ```
 
-**Create the probe table in the publisher**:
+**Start writing records against flare_test table... on the bastion**:
 ```sh
-./flare --config rds_test.yml create_replication_status_table bench
+sudo yum install -y docker
+sudo systemctl start docker
+sudo usermod -aG docker ec2-user
+sudo su - ec2-user
+
+docker run --rm -it ghcr.io/nabeken/pg-flare:latest attack --dsn postgres://app:app@<publisher>.rds.amazonaws.com/flare_test
 ```
 
 **Replicate the schema from the publisher to the subscriber**:
 ```sh
-./flare --config rds_test.yml replicate_schema --use-db-owner bench
+./flare --config rds_test.yml replicate_schema --use-db-owner flare_test
 ```
 
-**Replicate the installed extensions to the subscriber**:
-```sh
-./flare --config rds_test.yml install_extensions bench
+**Confirm all of the extensions are installed in the subscriber**:
+
+```
+cat <<EOF | psql -U postgres -h 127.0.0.1 -p35432 flare_test
+SELECT * FROM pg_available_extensions WHERE installed_version IS NOT NULL ORDER BY name;
+EOF
 ```
 
 **Monitor the replication**:
 ```sh
-./flare --config rds_test.yml monitor bench bench1
+./flare --config rds_test.yml monitor flare_test flare1
 ```
 
-**Create a publication in the publisher for a given database (ie. `bench` in the example)**:
+**Create a publication in the publisher**:
 ```sh
-./flare --config rds_test.yml create_publication bench
+./flare --config rds_test.yml create_publication flare_test
 ```
 
-**Create a subscription in the subscriber for a given database (ie. `bench` in the example)**:
+**Create a subscription in the subscriber**:
 ```sh
-./flare --config rds_test.yml create_subscription --use-repl-user bench1
+./flare --config rds_test.yml create_subscription --use-repl-user flare1
 ```
 
-**Pause write traffic and wait for the LSN to be advanced in the subscriber (ie. `bench` in the example)**:
+**Pause write traffic and wait for the LSN to be advanced in the subscriber**:
 ```sh
-./flare --config rds_test.yml pause_write --app-user app bench
+./flare --config rds_test.yml pause_write --app-user app flare_test flare1
 ```
 
-**Drop the subscription (ie. `bench1` in the example)**:
+**Drop the subscription**:
 ```sh
-./flare --config rds_test.yml drop_subscription bench1
+./flare --config rds_test.yml drop_subscription flare1
 ```
