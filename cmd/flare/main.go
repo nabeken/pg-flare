@@ -1056,6 +1056,13 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
 
+			if _, ok := cfg.Publications[dbName]; !ok {
+				log.Fatalf("Database '%s' is not found in the config\n", dbName)
+			}
+			if _, ok := cfg.Subscriptions[subName]; !ok {
+				log.Fatalf("Subscription '%s' is not found in the config\n", subName)
+			}
+
 			pconn, err := flare.Connect(ctx, cfg.Hosts.Publisher.Conn.SuperUserInfo(), dbName)
 			if err != nil {
 				log.Fatalf("Failed to connect to the publisher: %s", err)
@@ -1064,7 +1071,7 @@ func buildMonitor(gflags *globalFlags) *cobra.Command {
 
 			sconn, err := flare.Connect(ctx, cfg.Hosts.Subscriber.Conn.SuperUserInfo(), dbName)
 			if err != nil {
-				log.Fatalf("Failed to connect to the publisher: %s", err)
+				log.Fatalf("Failed to connect to the subscriber: %s", err)
 			}
 			defer sconn.Close(ctx)
 
