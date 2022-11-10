@@ -809,7 +809,7 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "grant_create [DBNAME]",
-		Short: "Grant CREATE in the given database to super-user in the publisher",
+		Short: "Grant CREATE and CONNECT in the given database to super-user in the publisher",
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) != 1 {
 				cmd.PrintErr("please specify a database name\n\n")
@@ -821,10 +821,6 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 			ctx := context.TODO()
 			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
-
-			superUser := cfg.Hosts.Publisher.Conn.SuperUserInfo().User
-
-			log.Printf("Granting CREATE ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
 
 			pubConnUserInfo := cfg.Hosts.Publisher.Conn.SuperUserInfo()
 
@@ -839,8 +835,16 @@ func buildGrantCreateCmd(gflags *globalFlags) *cobra.Command {
 
 			defer conn.Close(ctx)
 
+			superUser := cfg.Hosts.Publisher.Conn.SuperUserInfo().User
+
+			log.Printf("Granting CREATE ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
 			if _, err := conn.Exec(ctx, flare.GrantCreateQuery(dbName, superUser)); err != nil {
-				log.Fatal(err)
+				log.Fatalf("Failed to grant CREATE: %s", err)
+			}
+
+			log.Printf("Granting CONNECT ON DATABASE '%s' to '%s' in the publisher...", dbName, superUser)
+			if _, err := conn.Exec(ctx, flare.GrantConnectQuery(dbName, superUser)); err != nil {
+				log.Fatalf("Failed to grant CONNECT: %s", err)
 			}
 		},
 	}

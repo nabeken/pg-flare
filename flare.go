@@ -192,6 +192,10 @@ func GrantCreateQuery(dbName, user string) string {
 	return fmt.Sprintf(`GRANT CREATE ON DATABASE %s TO %s;`, quoteIdentifier(dbName), quoteIdentifier(user))
 }
 
+func GrantConnectQuery(dbName, user string) string {
+	return fmt.Sprintf(`GRANT CONNECT ON DATABASE %s TO %s;`, quoteIdentifier(dbName), quoteIdentifier(user))
+}
+
 const KillConnectionQuery = `
 	SELECT pg_terminate_backend(pid)
 	FROM pg_stat_activity
