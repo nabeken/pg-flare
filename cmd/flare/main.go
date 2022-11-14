@@ -77,6 +77,8 @@ func realmain() error {
 	rootCmd.AddCommand(buildCreateReplicationStatusTableCmd(gflags))
 	rootCmd.AddCommand(buildResetReplicationStatusCmd(gflags))
 
+	rootCmd.AddCommand(buildCountCmd(gflags))
+
 	return rootCmd.Execute()
 }
 
@@ -1342,6 +1344,37 @@ func buildResetReplicationStatusCmd(gflags *globalFlags) *cobra.Command {
 	return cmd
 }
 
+func buildCountCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "count [DBNAME] [TABLE_NAME]",
+		Short: "Count records in TABLE_NAME in DBNAME in the subscriber to confirm the replication",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if len(args) < 2 {
+				cmd.PrintErr("please specify a database and table\n\n")
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+			tableName := args[1]
+
+			sdboconn := mustSetupConn(ctx, cfg.Hosts.Subscriber.Conn.DBOwnerInfo(), dbName)
+			defer sdboconn.Close(ctx)
+
+			var count int
+			if err := sdboconn.QueryRow(ctx, flare.CountRecordsInTablesQuery(tableName)).Scan(&count); err != nil {
+				log.Fatalf("Failed to count records in %s: %s", tableName, err)
+			}
+
+			log.Printf("%d records found in %s", count, tableName)
+		},
+	}
+
+	return cmd
+}
+
 func mustSetupConn(ctx context.Context, ui flare.UserInfo, dbName string) *flare.Conn {
 	conn, err := flare.Connect(ctx, ui, dbName)
 	if err != nil {
@@ -1349,7 +1382,7 @@ func mustSetupConn(ctx context.Context, ui flare.UserInfo, dbName string) *flare
 	}
 
 	if err := conn.Ping(ctx); err != nil {
-		log.Fatal("Failed to ping to the databaes: %s", err)
+		log.Fatalf("Failed to ping to the databaes: %s", err)
 	}
 
 	return conn

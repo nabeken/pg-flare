@@ -184,6 +184,13 @@ func GrantAllOnAllTablesQuery(role string) string {
 	)
 }
 
+func CountRecordsInTablesQuery(tableName string) string {
+	return fmt.Sprintf(
+		`SELECT count(*) FROM %s`,
+		quoteIdentifier(tableName),
+	)
+}
+
 func CreateExtensionQuery(ext string) string {
 	return fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %s`, quoteIdentifier(ext))
 }
