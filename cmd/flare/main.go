@@ -609,7 +609,7 @@ func buildPauseWriteCmd(gflags *globalFlags) *cobra.Command {
 					dbName,
 				)
 				if err != nil {
-					log.Fatalf("Failed to kill the connections: %", err)
+					log.Fatalf("Failed to kill the connections: %s", err)
 				}
 
 				if ret.RowsAffected() > 0 {
