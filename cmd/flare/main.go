@@ -79,6 +79,8 @@ func realmain() error {
 
 	rootCmd.AddCommand(buildCountCmd(gflags))
 
+	rootCmd.AddCommand(buildVacuumAnalyzeCmd(gflags))
+
 	return rootCmd.Execute()
 }
 
@@ -1369,6 +1371,35 @@ func buildCountCmd(gflags *globalFlags) *cobra.Command {
 			}
 
 			log.Printf("%d records found in %s", count, tableName)
+		},
+	}
+
+	return cmd
+}
+
+func buildVacuumAnalyzeCmd(gflags *globalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vacuum_analyze [DBNAME]",
+		Short: "Execute VACUUM ANALYZE in DBNAME in the subscriber to refresh the statistics",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx := context.TODO()
+			cfg := readConfigFileAndVerifyOrExit(ctx, cmd, gflags.configFile)
+
+			if len(args) != 1 {
+				cmd.PrintErr("please specify a database\n\n")
+				os.Exit(1)
+			}
+
+			dbName := args[0]
+
+			sdboconn := mustSetupConn(ctx, cfg.Hosts.Subscriber.Conn.DBOwnerInfo(), dbName)
+			defer sdboconn.Close(ctx)
+
+			if _, err := sdboconn.Exec(ctx, "VACUUM ANALYZE;"); err != nil {
+				log.Fatalf("Failed to execute VACUUM ANALYZE in %s: %s", dbName, err)
+			}
+
+			log.Printf("VACUUM ANALYZE has been finished in %s", dbName)
 		},
 	}
 
