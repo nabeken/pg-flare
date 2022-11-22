@@ -1395,11 +1395,13 @@ func buildVacuumAnalyzeCmd(gflags *globalFlags) *cobra.Command {
 			sdboconn := mustSetupConn(ctx, cfg.Hosts.Subscriber.Conn.DBOwnerInfo(), dbName)
 			defer sdboconn.Close(ctx)
 
+			log.Printf("VACUUM ANALYZE is going to start for %s", dbName)
+
 			if _, err := sdboconn.Exec(ctx, "VACUUM ANALYZE;"); err != nil {
 				log.Fatalf("Failed to execute VACUUM ANALYZE in %s: %s", dbName, err)
 			}
 
-			log.Printf("VACUUM ANALYZE has been finished in %s", dbName)
+			log.Printf("VACUUM ANALYZE has been finished for %s", dbName)
 		},
 	}
 
