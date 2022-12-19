@@ -2,6 +2,8 @@
 
 `pg-flare` is a utility library and a command-line application for managing PostgreSQL logical replication.
 
+As of December 19, 2022, I have successfully migrated the prod database from 10 to 14 with this tool. I'll use this tool again when do the migration in the future.
+
 ## Motivation
 
 I found PostgreSQL's logical replication can be used for minimizing downtime for the major upgrade. The whole process must be automated to minimize the downtime. Thus, I need a foundation to build a solution that works for my purpose.
